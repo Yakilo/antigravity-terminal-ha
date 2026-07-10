@@ -23,18 +23,30 @@ Inspired by [oded996/gemini-cli-home-assistant-addons](https://github.com/oded99
 
 ## 🛠️ Installation
 
-### Via HACS Custom Repository
+> [!WARNING]
+> **Nicht über HACS installieren!** HACS verwaltet nur Integrationen und Frontend-Cards, aber keine Add-ons.  
+> Diese Installation läuft ausschließlich über den nativen **HA Supervisor Add-on Store**.
 
-1. Open **HACS** in your Home Assistant
-2. Go to **Integrations** → **Custom Repositories**
-3. Add the repository URL of this addon
-4. Install **Antigravity Terminal** from the addon store
+### Via HA Add-on Store (Custom Repository)
 
-### Manual Installation
+1. Gehe in Home Assistant zu **Einstellungen → Add-ons**
+2. Klicke auf **„Add-on Store"** (Button unten rechts)
+3. Oben rechts auf **⋮** (drei Punkte) → **„Repositories"**
+4. Folgende URL eintragen und mit **„Hinzufügen"** bestätigen:
+   ```
+   https://github.com/Yakilo/antigravity-terminal-ha
+   ```
+5. Den Store neu laden → **Antigravity Terminal** erscheint in der Liste
+6. Addon installieren, konfigurieren und starten
 
-1. Copy the `antigravity-terminal` folder to `/config/addons/antigravity-terminal/` on your HA instance
-2. Reload the addon store in **Settings → Addons → Addon Store → ⋮ → Reload**
-3. Find **Antigravity Terminal** in the **Local addons** section and install it
+**Direktlink zum Add-on Store:**  
+`http://homeassistant.local:8123/hassio/store`
+
+### Lokale Installation (ohne Internet)
+
+1. Den Ordner `antigravity-terminal/` auf deine HA-Instanz nach `/config/addons/antigravity-terminal/` kopieren (z.B. via Samba)
+2. Add-on Store neu laden: **⋮ → Reload**
+3. Das Addon erscheint unter **„Lokale Add-ons"**
 
 ---
 
