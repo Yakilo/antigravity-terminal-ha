@@ -104,25 +104,21 @@ if bashio::config.exists 'persistent_pip_packages'; then
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
-# Detect Antigravity CLI binary
+# Detect Gemini CLI binary
 # ────────────────────────────────────────────────────────────────────────────
 AG_CMD=""
-if command -v antigravity &>/dev/null; then
-    AG_CMD="antigravity"
-    bashio::log.info "Found Antigravity CLI: $(antigravity --version 2>/dev/null || echo 'version unknown')"
-elif command -v ag &>/dev/null; then
-    AG_CMD="ag"
-    bashio::log.info "Found Antigravity CLI as 'ag'"
+if command -v gemini &>/dev/null; then
+    AG_CMD="gemini"
+    bashio::log.info "Found Gemini CLI: $(gemini --version 2>/dev/null || echo 'version unknown')"
 else
-    bashio::log.warning "Antigravity CLI not found! Attempting npm install..."
-    npm install -g @google/antigravity 2>/dev/null \
-        || npm install -g antigravity 2>/dev/null \
-        || bashio::log.error "Could not install Antigravity CLI"
+    bashio::log.warning "Gemini CLI not found! Attempting npm install..."
+    npm install -g @google/gemini-cli 2>/dev/null \
+        || bashio::log.error "Could not install Gemini CLI"
 
-    if command -v antigravity &>/dev/null; then
-        AG_CMD="antigravity"
+    if command -v gemini &>/dev/null; then
+        AG_CMD="gemini"
     else
-        bashio::log.warning "Falling back to bash shell - please install Antigravity CLI manually"
+        bashio::log.warning "Falling back to bash shell - run 'npm install -g @google/gemini-cli' manually"
         AG_CMD="bash"
     fi
 fi
@@ -145,23 +141,23 @@ cd /config
 cat <<'BANNER'
 ╔══════════════════════════════════════════════════════════════╗
 ║          🚀  ANTIGRAVITY TERMINAL  for Home Assistant        ║
-║          Powered by Google DeepMind's Antigravity CLI        ║
+║          Powered by Google Gemini CLI + Antigravity AI       ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  Your smart home is fully accessible via MCP integration     ║
-║  Type 'antigravity' or just start chatting!                  ║
+║  Type 'gemini' to start chatting!                            ║
 ╚══════════════════════════════════════════════════════════════╝
 BANNER
 
 # Attach or create tmux session for persistence
-# We wrap the CLI in bash so the terminal stays open if antigravity exits
+# We wrap the CLI in bash so the terminal stays open if gemini exits
 SESSION_NAME="antigravity"
 if tmux has-session -t "\${SESSION_NAME}" 2>/dev/null; then
     echo "📎 Reconnecting to existing session..."
     exec tmux attach-session -t "\${SESSION_NAME}"
 else
-    echo "✨ Starting new Antigravity session..."
+    echo "✨ Starting Gemini CLI session..."
     # Use bash -c wrapper: if CLI exits, drop to bash so user keeps a shell
-    exec tmux new-session -s "\${SESSION_NAME}" bash -c "${AG_CMD}; echo ''; echo '⚠️  Antigravity exited. You are now in a bash shell.'; exec bash"
+    exec tmux new-session -s "\${SESSION_NAME}" bash -c "${AG_CMD}; echo ''; echo '⚠️  Gemini CLI exited. You are now in a bash shell. Type gemini to restart.'; exec bash"
 fi
 SHELL
 chmod +x /tmp/terminal_startup.sh

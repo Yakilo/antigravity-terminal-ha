@@ -70,11 +70,8 @@ RUN ARCH=$([ "$BUILD_ARCH" = "aarch64" ] && echo "aarch64" || echo "x86_64") \
         -o /usr/local/bin/ttyd \
     && chmod +x /usr/local/bin/ttyd
 
-# Install Antigravity CLI globally via npm
-# Note: Antigravity CLI is published as @google/antigravity on npm
-RUN npm install -g @google/antigravity 2>/dev/null \
-    || npm install -g antigravity 2>/dev/null \
-    || echo "Antigravity CLI not yet on npm - will install from source at runtime"
+# Install Gemini CLI globally via npm (@google/gemini-cli is the real Google CLI)
+RUN npm install -g @google/gemini-cli
 
 # Copy the hab binary from builder stage
 COPY --from=hab-builder /hab /usr/local/bin/hab
