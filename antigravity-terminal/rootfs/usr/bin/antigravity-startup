@@ -138,6 +138,22 @@ else
             export HASS_HOST="http://supervisor/core"
             export TERM=xterm-256color
 
+            # Start filesystem watcher in background to find credentials folder
+            (
+                echo "[DEBUG] Filesystem monitor started..."
+                OLD_LIST=""
+                while true; do
+                    NEW_LIST=$(find /root /data -maxdepth 4 -not -path "*/.cache/*" -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null | sort)
+                    if [ "$OLD_LIST" != "" ] && [ "$OLD_LIST" != "$NEW_LIST" ]; then
+                        echo "[DEBUG] Filesystem changed!"
+                        diff <(echo "$OLD_LIST") <(echo "$NEW_LIST") | grep "^>" || true
+                    fi
+                    OLD_LIST="$NEW_LIST"
+                    sleep 3
+                done
+            ) &
+            WATCHER_PID=$!
+
             # Reinforce symlinks inside this process
             mkdir -p /root/.config /root/.local/share /root/.cache
             ln -sfn /data/agy/config /root/.config/agy
@@ -152,6 +168,8 @@ else
                 curl -fsSL https://antigravity.google/cli/install.sh | bash
                 agy
             fi
+
+            kill $WATCHER_PID 2>/dev/null || true
             echo ""
             echo "  ─────────────────────────────────────────────"
             echo "  agy exited  │  Type '\''agy'\'' to restart"
