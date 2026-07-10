@@ -57,8 +57,6 @@ Inspired by [oded996/gemini-cli-home-assistant-addons](https://github.com/oded99
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `google_api_key` | `string` | `""` | Your Google AI / Gemini API key ([get one here](https://aistudio.google.com/app/apikey)) |
-| `enable_ha_mcp` | `bool` | `true` | Enable Home Assistant MCP Server integration |
-| `ha_mcp_url` | `string` | `""` | Custom MCP Server URL (leave empty for auto-detection) |
 | `terminal_theme` | `string` | `"breeze"` | Terminal color theme |
 | `font_size` | `int` | `14` | Terminal font size in pixels |
 | `cursor_style` | `select` | `"block"` | Cursor style: `block`, `underline`, or `bar` |
@@ -70,8 +68,6 @@ Inspired by [oded996/gemini-cli-home-assistant-addons](https://github.com/oded99
 
 ```yaml
 google_api_key: "AIza..."
-enable_ha_mcp: true
-ha_mcp_url: ""
 terminal_theme: breeze
 font_size: 14
 cursor_style: block
@@ -82,24 +78,9 @@ persistent_pip_packages: []
 
 ---
 
-## 🔌 MCP Integration
-
-This addon automatically connects Antigravity CLI to your Home Assistant via the **HA MCP Server** addon. 
-
-**Prerequisites:** You need the [Home Assistant MCP Server](https://github.com/home-assistant/addons/tree/master/mcp_server) addon installed.
-
-Once connected, you can ask Antigravity things like:
-- *"Turn off all lights in the living room"*
-- *"What's the current temperature in the bedroom?"*
-- *"Create an automation that turns on the garden lights at sunset"*
-- *"Show me which devices are currently unavailable"*
-
----
-
 ## 📋 Requirements
 
 - Home Assistant OS or Supervised
-- [Home Assistant MCP Server Addon](https://my.home-assistant.io/redirect/supervisor_addon/?addon=core_mcp_server) (for MCP integration)
 - Google AI API Key ([free at aistudio.google.com](https://aistudio.google.com/app/apikey))
 
 ---
@@ -111,8 +92,7 @@ Browser
   └── HA Ingress (port 8099)
         └── ttyd (web terminal)
               └── tmux (session manager)
-                    └── Antigravity CLI
-                          └── MCP → Home Assistant
+                    └── Antigravity CLI (agy)
 ```
 
 ---

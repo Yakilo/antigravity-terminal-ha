@@ -12,8 +12,6 @@ bashio::log.info "Starting Antigravity Terminal..."
 # Read configuration from HA addon options
 # ────────────────────────────────────────────────────────────────────────────
 GOOGLE_API_KEY=$(bashio::config 'google_api_key')
-ENABLE_HA_MCP=$(bashio::config 'enable_ha_mcp')
-HA_MCP_URL=$(bashio::config 'ha_mcp_url')
 FONT_SIZE=$(bashio::config 'font_size' '14')
 CURSOR_STYLE=$(bashio::config 'cursor_style' 'block')
 CURSOR_BLINK=$(bashio::config 'cursor_blink' 'false')
@@ -26,17 +24,6 @@ export GOOGLE_API_KEY="${GOOGLE_API_KEY}"
 export GEMINI_API_KEY="${GOOGLE_API_KEY}"   # fallback alias
 export HASS_HOST="http://supervisor/core"
 export HOME="/root"
-
-# ────────────────────────────────────────────────────────────────────────────
-# MCP Server URL (auto-detect if empty)
-# ────────────────────────────────────────────────────────────────────────────
-if bashio::config.true 'enable_ha_mcp'; then
-    if ! bashio::var.has_value "${HA_MCP_URL}"; then
-        HA_MCP_URL="http://supervisor/addons/cebe7a76_ha_mcp_server/proxy"
-    fi
-    export HA_MCP_URL="${HA_MCP_URL}"
-    bashio::log.info "MCP integration enabled: ${HA_MCP_URL}"
-fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # Pre-create agy config so setup wizard is skipped on first launch
@@ -57,21 +44,6 @@ cat > "${AGY_CONFIG_DIR}/config.json" <<EOF
   "workspaceTrustConfirmed": true
 }
 EOF
-
-# MCP config for Home Assistant integration
-if bashio::config.true 'enable_ha_mcp'; then
-    cat > "${AGY_CONFIG_DIR}/mcp_config.json" <<EOF
-{
-  "mcpServers": {
-    "homeassistant": {
-      "url": "${HA_MCP_URL}",
-      "type": "sse",
-      "description": "Home Assistant MCP Server"
-    }
-  }
-}
-EOF
-fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # Verify agy is installed, install or update to latest
