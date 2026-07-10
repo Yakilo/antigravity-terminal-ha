@@ -1,5 +1,6 @@
 # Global ARGs (available in FROM instructions)
-ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base-debian:trixie
+# BUILD_FROM is set per-architecture via build.yaml - do NOT hardcode here!
+ARG BUILD_FROM
 ARG BUILD_ARCH
 
 ## Stage 1: Build hab CLI from source (pinned release)

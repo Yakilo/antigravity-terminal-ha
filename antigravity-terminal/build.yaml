@@ -1,0 +1,6 @@
+---
+# build.yaml - Tells the HA Supervisor which base image to use per architecture
+# This file is REQUIRED for multi-arch addons!
+build_from:
+  aarch64: "ghcr.io/home-assistant/aarch64-base-debian:trixie"
+  amd64: "ghcr.io/home-assistant/amd64-base-debian:trixie"
