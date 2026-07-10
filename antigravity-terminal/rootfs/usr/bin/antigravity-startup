@@ -26,24 +26,36 @@ export HASS_HOST="http://supervisor/core"
 export HOME="/root"
 
 # ────────────────────────────────────────────────────────────────────────────
-# Pre-create agy config so setup wizard is skipped on first launch
-# agy stores its config in ~/.config/agy/
+# Make agy config & data folders persistent across restarts
+# Map them via Symlinks to /data/ (which is persistent in HA addons)
 # ────────────────────────────────────────────────────────────────────────────
-AGY_CONFIG_DIR="/root/.config/agy"
-mkdir -p "${AGY_CONFIG_DIR}"
+PERSISTENT_DATA_DIR="/data/agy"
+mkdir -p "${PERSISTENT_DATA_DIR}/config"
+mkdir -p "${PERSISTENT_DATA_DIR}/share"
 
-# Main agy config - pre-fills API key and skips interactive setup
-cat > "${AGY_CONFIG_DIR}/config.json" <<EOF
+# Symlink ~/.config/agy -> /data/agy/config
+mkdir -p "/root/.config"
+ln -sfn "${PERSISTENT_DATA_DIR}/config" "/root/.config/agy"
+
+# Symlink ~/.local/share/agy -> /data/agy/share
+mkdir -p "/root/.local/share"
+ln -sfn "${PERSISTENT_DATA_DIR}/share" "/root/.local/share/agy"
+
+AGY_CONFIG_DIR="/root/.config/agy"
+
+# Only write default config if it does not exist yet (to avoid overwriting user settings)
+if [ ! -f "${AGY_CONFIG_DIR}/config.json" ]; then
+    bashio::log.info "Initializing default agy configuration..."
+    cat > "${AGY_CONFIG_DIR}/config.json" <<EOF
 {
-  "apiKey": "${GOOGLE_API_KEY}",
   "theme": "dark",
   "renderingMode": "alt-screen",
   "setupComplete": true,
   "autoAcceptedTermsVersion": 1,
-  "selectedAuthType": "api-key",
   "workspaceTrustConfirmed": true
 }
 EOF
+fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # Verify agy is installed, install or update to latest
