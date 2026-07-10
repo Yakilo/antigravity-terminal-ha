@@ -1,7 +1,7 @@
 ---
 name: "Antigravity Terminal"
 description: "Terminal interface for Google DeepMind's Antigravity CLI with deep MCP integration for Home Assistant"
-version: "1.0.0"
+version: "1.0.1"
 slug: "antigravity_terminal"
 url: "https://github.com/yakilo/antigravity-terminal-ha"
 arch:
