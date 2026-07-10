@@ -4,7 +4,7 @@
 ![HA OS](https://img.shields.io/badge/Home%20Assistant-OS-41BDF5?style=for-the-badge&logo=home-assistant&logoColor=white)
 ![Architecture](https://img.shields.io/badge/arch-aarch64%20%7C%20amd64-green?style=for-the-badge)
 
-A **Home Assistant Addon** that provides a web-based terminal running Google DeepMind's **Antigravity CLI**, deeply integrated with your Home Assistant instance via MCP.
+A **Home Assistant Addon** that provides a web-based terminal running Google DeepMind's **Antigravity CLI (agy)** directly in your browser.
 
 Inspired by [oded996/gemini-cli-home-assistant-addons](https://github.com/oded996/gemini-cli-home-assistant-addons).
 
@@ -15,7 +15,6 @@ Inspired by [oded996/gemini-cli-home-assistant-addons](https://github.com/oded99
 - 🚀 **Antigravity CLI (agy)** running directly inside Home Assistant
 - ⚡ **Auto-Start & Setup Skipped** - No wizard needed, starts immediately with preconfigured API keys
 - 📋 **System Clipboard Integration** - Includes `xclip` and `wl-clipboard` for seamless clipboard synchronization
-- 🏠 **Full HA MCP Integration** - Antigravity can control your smart home natively
 - 🖥️ **Web Terminal** via [ttyd](https://github.com/tsl0922/ttyd) - accessible directly in the HA sidebar
 - 💾 **Session Persistence** via tmux - reconnect to your running session
 - 🎨 **Customizable** - theme, font size, cursor style
