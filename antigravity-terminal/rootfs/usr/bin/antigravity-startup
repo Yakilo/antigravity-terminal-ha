@@ -74,13 +74,18 @@ EOF
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
-# Verify agy is installed, install if missing
+# Verify agy is installed, install or update to latest
 # ────────────────────────────────────────────────────────────────────────────
 if ! command -v agy &>/dev/null; then
     bashio::log.warning "agy not found - installing now..."
     curl -fsSL https://antigravity.google/cli/install.sh | bash \
         && ln -sf /root/.local/bin/agy /usr/local/bin/agy \
         || bashio::log.error "agy installation failed"
+else
+    # Force update the agy binary on start
+    bashio::log.info "Checking/Updating Antigravity CLI..."
+    curl -fsSL https://antigravity.google/cli/install.sh | bash &>/dev/null \
+        || bashio::log.warning "Could not update agy CLI"
 fi
 
 if command -v agy &>/dev/null; then

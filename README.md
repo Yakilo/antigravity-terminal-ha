@@ -12,7 +12,9 @@ Inspired by [oded996/gemini-cli-home-assistant-addons](https://github.com/oded99
 
 ## ✨ Features
 
-- 🚀 **Antigravity CLI** running directly inside Home Assistant
+- 🚀 **Antigravity CLI (agy)** running directly inside Home Assistant
+- ⚡ **Auto-Start & Setup Skipped** - No wizard needed, starts immediately with preconfigured API keys
+- 📋 **System Clipboard Integration** - Includes `xclip` and `wl-clipboard` for seamless clipboard synchronization
 - 🏠 **Full HA MCP Integration** - Antigravity can control your smart home natively
 - 🖥️ **Web Terminal** via [ttyd](https://github.com/tsl0922/ttyd) - accessible directly in the HA sidebar
 - 💾 **Session Persistence** via tmux - reconnect to your running session

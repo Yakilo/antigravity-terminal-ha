@@ -51,6 +51,8 @@ RUN apt-get update \
         nano \
         vim \
         tree \
+        xclip \
+        wl-clipboard \
     && rm -rf /var/lib/apt/lists/*
 
 # Install GitHub CLI (gh) for repository operations
