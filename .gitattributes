@@ -1,0 +1,17 @@
+# Default: normalize line endings to LF in the repo
+* text=auto eol=lf
+
+# Shell scripts must always use LF (Unix line endings)
+*.sh        text eol=lf
+rootfs/**/* text eol=lf
+
+# YAML / JSON / Markdown: LF
+*.yaml      text eol=lf
+*.yml       text eol=lf
+*.json      text eol=lf
+*.md        text eol=lf
+
+# Binaries: no conversion
+*.png       binary
+*.jpg       binary
+*.ico       binary

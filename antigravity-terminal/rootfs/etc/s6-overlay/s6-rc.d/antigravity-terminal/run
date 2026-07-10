@@ -1,0 +1,5 @@
+#!/command/with-contenv bashio
+# s6-overlay service: antigravity-terminal
+# This is the main process that s6 monitors and restarts if needed
+
+exec /usr/bin/antigravity-startup

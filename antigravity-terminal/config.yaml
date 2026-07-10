@@ -1,0 +1,68 @@
+---
+name: "Antigravity Terminal"
+description: "Terminal interface for Google DeepMind's Antigravity CLI with deep MCP integration for Home Assistant"
+version: "1.0.0"
+slug: "antigravity_terminal"
+url: "https://github.com/yakilo/antigravity-terminal-ha"
+arch:
+  - aarch64
+  - amd64
+startup: application
+init: false
+
+# Ingress configuration - opens directly in HA sidebar
+ingress: true
+ingress_port: 8099
+ingress_stream: true
+panel_icon: mdi:robot-excited-outline
+panel_title: "Antigravity Terminal"
+
+# File access - Home Assistant config directory
+map:
+  - config:rw
+
+# API access
+hassio_api: true
+hassio_role: manager
+homeassistant_api: true
+
+# Security
+host_network: false
+privileged: []
+apparmor: true
+
+# User-configurable options
+options:
+  # Antigravity / Google AI API key
+  google_api_key: ""
+
+  # Enable Home Assistant MCP integration
+  enable_ha_mcp: true
+
+  # Home Assistant MCP Server URL (auto-detected if empty)
+  ha_mcp_url: ""
+
+  # Extra APK packages to install persistently
+  persistent_apk_packages: []
+
+  # Extra pip packages to install persistently
+  persistent_pip_packages: []
+
+  # Terminal appearance
+  terminal_theme: "breeze"
+  font_size: 14
+  cursor_style: "block"
+  cursor_blink: false
+
+schema:
+  google_api_key: str
+  enable_ha_mcp: bool
+  ha_mcp_url: str
+  persistent_apk_packages:
+    - str
+  persistent_pip_packages:
+    - str
+  terminal_theme: str
+  font_size: int
+  cursor_style: list(block|underline|bar)
+  cursor_blink: bool

@@ -1,0 +1,191 @@
+#!/usr/bin/with-contenv bashio
+# ==============================================================================
+# Antigravity Terminal - Main Startup Script
+# Configures environment and launches ttyd web terminal with Antigravity CLI
+# ==============================================================================
+
+set -euo pipefail
+
+bashio::log.info "Starting Antigravity Terminal..."
+
+# ────────────────────────────────────────────────────────────────────────────
+# Read configuration from HA addon options
+# ────────────────────────────────────────────────────────────────────────────
+GOOGLE_API_KEY=$(bashio::config 'google_api_key')
+ENABLE_HA_MCP=$(bashio::config 'enable_ha_mcp')
+HA_MCP_URL=$(bashio::config 'ha_mcp_url')
+TERMINAL_THEME=$(bashio::config 'terminal_theme' 'breeze')
+FONT_SIZE=$(bashio::config 'font_size' '14')
+CURSOR_STYLE=$(bashio::config 'cursor_style' 'block')
+CURSOR_BLINK=$(bashio::config 'cursor_blink' 'false')
+
+# ────────────────────────────────────────────────────────────────────────────
+# Set environment variables for Antigravity CLI
+# ────────────────────────────────────────────────────────────────────────────
+export GOOGLE_API_KEY="${GOOGLE_API_KEY}"
+export GEMINI_API_KEY="${GOOGLE_API_KEY}"  # Antigravity also accepts GEMINI_API_KEY
+
+# ────────────────────────────────────────────────────────────────────────────
+# Home Assistant API integration
+# ────────────────────────────────────────────────────────────────────────────
+HA_TOKEN=$(bashio::config 'hassio_token' '' 2>/dev/null || echo "")
+if bashio::var.has_value "${HA_TOKEN}"; then
+    export HASS_TOKEN="${HA_TOKEN}"
+fi
+
+export HASS_HOST="http://supervisor/core"
+
+# ────────────────────────────────────────────────────────────────────────────
+# MCP Server configuration for HA integration
+# ────────────────────────────────────────────────────────────────────────────
+if bashio::config.true 'enable_ha_mcp'; then
+    bashio::log.info "MCP integration enabled - connecting to Home Assistant MCP server"
+
+    # Detect MCP URL - use provided or auto-detect from Supervisor
+    if bashio::var.has_value "${HA_MCP_URL}"; then
+        MCP_URL="${HA_MCP_URL}"
+    else
+        # Try to find the HA MCP Server addon URL automatically
+        MCP_URL=$(bashio::addon.ingress_url "cebe7a76_ha_mcp_server" 2>/dev/null \
+            || echo "http://supervisor/addons/cebe7a76_ha_mcp_server/proxy")
+    fi
+    export HA_MCP_URL="${MCP_URL}"
+    bashio::log.info "MCP URL: ${MCP_URL}"
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
+# Antigravity CLI settings directory
+# ────────────────────────────────────────────────────────────────────────────
+AG_CONFIG_DIR="/config/.antigravity"
+mkdir -p "${AG_CONFIG_DIR}"
+
+# Write Antigravity settings.json
+cat > "${AG_CONFIG_DIR}/settings.json" <<EOF
+{
+  "theme": "dark",
+  "autoAcceptedTermsVersion": 1,
+  "selectedAuthType": "api-key"
+}
+EOF
+
+# Write MCP configuration if enabled
+if bashio::config.true 'enable_ha_mcp'; then
+    bashio::log.info "Writing MCP config for Home Assistant..."
+    cat > "${AG_CONFIG_DIR}/mcp_config.json" <<EOF
+{
+  "mcpServers": {
+    "homeassistant": {
+      "url": "${HA_MCP_URL}",
+      "type": "sse",
+      "description": "Home Assistant MCP Server - control your smart home"
+    }
+  }
+}
+EOF
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
+# Install extra packages if configured
+# ────────────────────────────────────────────────────────────────────────────
+if bashio::config.exists 'persistent_apk_packages'; then
+    for pkg in $(bashio::config 'persistent_apk_packages[]' 2>/dev/null); do
+        bashio::log.info "Installing APT package: ${pkg}"
+        apt-get install -y --no-install-recommends "${pkg}" 2>/dev/null || \
+            bashio::log.warning "Failed to install package: ${pkg}"
+    done
+fi
+
+if bashio::config.exists 'persistent_pip_packages'; then
+    for pkg in $(bashio::config 'persistent_pip_packages[]' 2>/dev/null); do
+        bashio::log.info "Installing pip package: ${pkg}"
+        pip3 install --break-system-packages "${pkg}" 2>/dev/null || \
+            bashio::log.warning "Failed to install pip package: ${pkg}"
+    done
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
+# Detect Antigravity CLI binary
+# ────────────────────────────────────────────────────────────────────────────
+AG_CMD=""
+if command -v antigravity &>/dev/null; then
+    AG_CMD="antigravity"
+    bashio::log.info "Found Antigravity CLI: $(antigravity --version 2>/dev/null || echo 'version unknown')"
+elif command -v ag &>/dev/null; then
+    AG_CMD="ag"
+    bashio::log.info "Found Antigravity CLI as 'ag'"
+else
+    bashio::log.warning "Antigravity CLI not found! Attempting npm install..."
+    npm install -g @google/antigravity 2>/dev/null \
+        || npm install -g antigravity 2>/dev/null \
+        || bashio::log.error "Could not install Antigravity CLI"
+
+    if command -v antigravity &>/dev/null; then
+        AG_CMD="antigravity"
+    else
+        bashio::log.warning "Falling back to bash shell - please install Antigravity CLI manually"
+        AG_CMD="bash"
+    fi
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
+# Create the startup shell script that runs inside ttyd
+# This uses tmux for session persistence
+# ────────────────────────────────────────────────────────────────────────────
+cat > /tmp/terminal_startup.sh <<SHELL
+#!/bin/bash
+export GOOGLE_API_KEY="${GOOGLE_API_KEY}"
+export GEMINI_API_KEY="${GOOGLE_API_KEY}"
+export HASS_HOST="http://supervisor/core"
+export HOME="/config"
+
+# Navigate to config directory
+cd /config
+
+# Display welcome banner
+cat <<'BANNER'
+╔══════════════════════════════════════════════════════════════╗
+║          🚀  ANTIGRAVITY TERMINAL  for Home Assistant        ║
+║          Powered by Google DeepMind's Antigravity CLI        ║
+╠══════════════════════════════════════════════════════════════╣
+║  Your smart home is fully accessible via MCP integration     ║
+║  Type 'antigravity' or just start chatting!                  ║
+╚══════════════════════════════════════════════════════════════╝
+BANNER
+
+# Attach or create tmux session for persistence
+SESSION_NAME="antigravity"
+if tmux has-session -t "\${SESSION_NAME}" 2>/dev/null; then
+    echo "📎 Reconnecting to existing session..."
+    exec tmux attach-session -t "\${SESSION_NAME}"
+else
+    echo "✨ Starting new Antigravity session..."
+    exec tmux new-session -s "\${SESSION_NAME}" "${AG_CMD}"
+fi
+SHELL
+chmod +x /tmp/terminal_startup.sh
+
+# ────────────────────────────────────────────────────────────────────────────
+# Map cursor style to ttyd format
+# ────────────────────────────────────────────────────────────────────────────
+case "${CURSOR_STYLE}" in
+    "underline") TTYD_CURSOR=1 ;;
+    "bar")       TTYD_CURSOR=2 ;;
+    *)           TTYD_CURSOR=0 ;;  # block (default)
+esac
+
+# ────────────────────────────────────────────────────────────────────────────
+# Launch ttyd web terminal
+# ────────────────────────────────────────────────────────────────────────────
+bashio::log.info "Launching ttyd web terminal on port 8099..."
+bashio::log.info "Antigravity CLI command: ${AG_CMD}"
+
+exec ttyd \
+    --port 8099 \
+    --interface 0.0.0.0 \
+    --writable \
+    --reconnect 5 \
+    --client-option "fontSize=${FONT_SIZE}" \
+    --client-option "theme={\"background\":\"#0d1117\",\"foreground\":\"#e6edf3\",\"cursor\":\"#58a6ff\",\"cursorAccent\":\"#0d1117\",\"selectionBackground\":\"#264f78\",\"black\":\"#484f58\",\"red\":\"#ff7b72\",\"green\":\"#3fb950\",\"yellow\":\"#d29922\",\"blue\":\"#58a6ff\",\"magenta\":\"#bc8cff\",\"cyan\":\"#39d353\",\"white\":\"#b1bac4\",\"brightBlack\":\"#6e7681\",\"brightRed\":\"#ffa198\",\"brightGreen\":\"#56d364\",\"brightYellow\":\"#e3b341\",\"brightBlue\":\"#79c0ff\",\"brightMagenta\":\"#d2a8ff\",\"brightCyan\":\"#56d364\",\"brightWhite\":\"#f0f6fc\"}" \
+    --client-option "cursorStyle=${CURSOR_STYLE}" \
+    --client-option "cursorBlink=${CURSOR_BLINK}" \
+    /tmp/terminal_startup.sh
