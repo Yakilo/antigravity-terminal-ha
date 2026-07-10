@@ -24,10 +24,6 @@ Inspired by [oded996/gemini-cli-home-assistant-addons](https://github.com/oded99
 
 ## 🛠️ Installation
 
-> [!WARNING]
-> **Nicht über HACS installieren!** HACS verwaltet nur Integrationen und Frontend-Cards, aber keine Add-ons.  
-> Diese Installation läuft ausschließlich über den nativen **HA Supervisor Add-on Store**.
-
 ### Via HA Add-on Store (Custom Repository)
 
 1. Gehe in Home Assistant zu **Einstellungen → Add-ons**
@@ -37,50 +33,7 @@ Inspired by [oded996/gemini-cli-home-assistant-addons](https://github.com/oded99
    ```
    https://github.com/Yakilo/antigravity-terminal-ha
    ```
-5. Den Store neu laden → **Antigravity Terminal** erscheint in der Liste
-6. Addon installieren, konfigurieren und starten
-
-**Direktlink zum Add-on Store:**  
-`http://homeassistant.local:8123/hassio/store`
-
-### Lokale Installation (ohne Internet)
-
-1. Den Ordner `antigravity-terminal/` auf deine HA-Instanz nach `/config/addons/antigravity-terminal/` kopieren (z.B. via Samba)
-2. Add-on Store neu laden: **⋮ → Reload**
-3. Das Addon erscheint unter **„Lokale Add-ons"**
-
----
-
-## ⚙️ Configuration
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `google_api_key` | `string` | `""` | Your Google AI / Gemini API key ([get one here](https://aistudio.google.com/app/apikey)) |
-| `terminal_theme` | `string` | `"breeze"` | Terminal color theme |
-| `font_size` | `int` | `14` | Terminal font size in pixels |
-| `cursor_style` | `select` | `"block"` | Cursor style: `block`, `underline`, or `bar` |
-| `cursor_blink` | `bool` | `false` | Enable cursor blinking |
-| `persistent_apk_packages` | `list` | `[]` | Extra APT packages to install |
-| `persistent_pip_packages` | `list` | `[]` | Extra Python pip packages to install |
-
-### Example Configuration
-
-```yaml
-google_api_key: "AIza..."
-terminal_theme: breeze
-font_size: 14
-cursor_style: block
-cursor_blink: false
-persistent_apk_packages: []
-persistent_pip_packages: []
-```
-
----
-
-## 📋 Requirements
-
-- Home Assistant OS or Supervised
-- Google AI API Key ([free at aistudio.google.com](https://aistudio.google.com/app/apikey))
+5. Den Store neu laden → **Antigravity Terminal** erscheint in der Liste und kann installiert werden.
 
 ---
 
