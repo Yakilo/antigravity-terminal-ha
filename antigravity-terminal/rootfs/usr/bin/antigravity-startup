@@ -1,7 +1,7 @@
 #!/usr/bin/with-contenv bashio
 # ==============================================================================
 # Antigravity Terminal - Main Startup Script
-# Configures environment and launches ttyd web terminal with Antigravity CLI
+# Configures environment and launches ttyd web terminal with agy CLI
 # ==============================================================================
 
 set -euo pipefail
@@ -14,70 +14,59 @@ bashio::log.info "Starting Antigravity Terminal..."
 GOOGLE_API_KEY=$(bashio::config 'google_api_key')
 ENABLE_HA_MCP=$(bashio::config 'enable_ha_mcp')
 HA_MCP_URL=$(bashio::config 'ha_mcp_url')
-TERMINAL_THEME=$(bashio::config 'terminal_theme' 'breeze')
 FONT_SIZE=$(bashio::config 'font_size' '14')
 CURSOR_STYLE=$(bashio::config 'cursor_style' 'block')
 CURSOR_BLINK=$(bashio::config 'cursor_blink' 'false')
 
 # ────────────────────────────────────────────────────────────────────────────
-# Set environment variables for Antigravity CLI
+# Environment
 # ────────────────────────────────────────────────────────────────────────────
+export PATH="/root/.local/bin:/usr/local/bin:${PATH}"
 export GOOGLE_API_KEY="${GOOGLE_API_KEY}"
-export GEMINI_API_KEY="${GOOGLE_API_KEY}"  # Antigravity also accepts GEMINI_API_KEY
-
-# ────────────────────────────────────────────────────────────────────────────
-# Home Assistant API integration
-# ────────────────────────────────────────────────────────────────────────────
-HA_TOKEN=$(bashio::config 'hassio_token' '' 2>/dev/null || echo "")
-if bashio::var.has_value "${HA_TOKEN}"; then
-    export HASS_TOKEN="${HA_TOKEN}"
-fi
-
+export GEMINI_API_KEY="${GOOGLE_API_KEY}"   # fallback alias
 export HASS_HOST="http://supervisor/core"
+export HOME="/root"
 
 # ────────────────────────────────────────────────────────────────────────────
-# MCP Server configuration for HA integration
+# MCP Server URL (auto-detect if empty)
 # ────────────────────────────────────────────────────────────────────────────
 if bashio::config.true 'enable_ha_mcp'; then
-    bashio::log.info "MCP integration enabled - connecting to Home Assistant MCP server"
-
-    # Detect MCP URL - use provided or auto-detect from Supervisor
-    if bashio::var.has_value "${HA_MCP_URL}"; then
-        MCP_URL="${HA_MCP_URL}"
-    else
-        # Try to find the HA MCP Server addon URL automatically
-        MCP_URL=$(bashio::addon.ingress_url "cebe7a76_ha_mcp_server" 2>/dev/null \
-            || echo "http://supervisor/addons/cebe7a76_ha_mcp_server/proxy")
+    if ! bashio::var.has_value "${HA_MCP_URL}"; then
+        HA_MCP_URL="http://supervisor/addons/cebe7a76_ha_mcp_server/proxy"
     fi
-    export HA_MCP_URL="${MCP_URL}"
-    bashio::log.info "MCP URL: ${MCP_URL}"
+    export HA_MCP_URL="${HA_MCP_URL}"
+    bashio::log.info "MCP integration enabled: ${HA_MCP_URL}"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
-# Antigravity CLI settings directory
+# Pre-create agy config so setup wizard is skipped on first launch
+# agy stores its config in ~/.config/agy/
 # ────────────────────────────────────────────────────────────────────────────
-AG_CONFIG_DIR="/config/.antigravity"
-mkdir -p "${AG_CONFIG_DIR}"
+AGY_CONFIG_DIR="/root/.config/agy"
+mkdir -p "${AGY_CONFIG_DIR}"
 
-# Write Antigravity settings.json
-cat > "${AG_CONFIG_DIR}/settings.json" <<EOF
+# Main agy config - pre-fills API key and skips interactive setup
+cat > "${AGY_CONFIG_DIR}/config.json" <<EOF
 {
+  "apiKey": "${GOOGLE_API_KEY}",
   "theme": "dark",
+  "renderingMode": "alt-screen",
+  "setupComplete": true,
   "autoAcceptedTermsVersion": 1,
-  "selectedAuthType": "api-key"
+  "selectedAuthType": "api-key",
+  "workspaceTrustConfirmed": true
 }
 EOF
 
-# Write MCP configuration if enabled
+# MCP config for Home Assistant integration
 if bashio::config.true 'enable_ha_mcp'; then
-    bashio::log.info "Writing MCP config for Home Assistant..."
-    cat > "${AG_CONFIG_DIR}/mcp_config.json" <<EOF
+    cat > "${AGY_CONFIG_DIR}/mcp_config.json" <<EOF
 {
   "mcpServers": {
     "homeassistant": {
       "url": "${HA_MCP_URL}",
       "type": "sse",
-      "description": "Home Assistant MCP Server - control your smart home"
+      "description": "Home Assistant MCP Server"
     }
   }
 }
@@ -85,13 +74,29 @@ EOF
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
+# Verify agy is installed, install if missing
+# ────────────────────────────────────────────────────────────────────────────
+if ! command -v agy &>/dev/null; then
+    bashio::log.warning "agy not found - installing now..."
+    curl -fsSL https://antigravity.google/cli/install.sh | bash \
+        && ln -sf /root/.local/bin/agy /usr/local/bin/agy \
+        || bashio::log.error "agy installation failed"
+fi
+
+if command -v agy &>/dev/null; then
+    bashio::log.info "agy ready: $(agy --version 2>/dev/null || echo 'version ok')"
+else
+    bashio::log.warning "agy unavailable - terminal will open as bash shell"
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
 # Install extra packages if configured
 # ────────────────────────────────────────────────────────────────────────────
 if bashio::config.exists 'persistent_apk_packages'; then
     for pkg in $(bashio::config 'persistent_apk_packages[]' 2>/dev/null); do
-        bashio::log.info "Installing APT package: ${pkg}"
+        bashio::log.info "Installing package: ${pkg}"
         apt-get install -y --no-install-recommends "${pkg}" 2>/dev/null || \
-            bashio::log.warning "Failed to install package: ${pkg}"
+            bashio::log.warning "Failed to install: ${pkg}"
     done
 fi
 
@@ -104,88 +109,64 @@ if bashio::config.exists 'persistent_pip_packages'; then
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
-# Detect Antigravity CLI (agy) binary
+# Build the inner shell script that ttyd executes
+# Goal: terminal opens → agy starts IMMEDIATELY, no manual steps
 # ────────────────────────────────────────────────────────────────────────────
-export PATH="/root/.local/bin:${PATH}"
-AG_CMD=""
-if command -v agy &>/dev/null; then
-    AG_CMD="agy"
-    bashio::log.info "Found Antigravity CLI (agy): $(agy --version 2>/dev/null || echo 'version unknown')"
-else
-    bashio::log.warning "agy not found! Installing via official script..."
-    curl -fsSL https://antigravity.google/cli/install.sh | bash 2>/dev/null \
-        && ln -sf /root/.local/bin/agy /usr/local/bin/agy \
-        || bashio::log.error "Could not install Antigravity CLI"
-
-    if command -v agy &>/dev/null; then
-        AG_CMD="agy"
-        bashio::log.info "agy installed successfully!"
-    else
-        bashio::log.warning "Falling back to bash shell - run the install manually"
-        AG_CMD="bash"
-    fi
-fi
-
-# ────────────────────────────────────────────────────────────────────────────
-# Create the startup shell script that runs inside ttyd
-# This uses tmux for session persistence
-# ────────────────────────────────────────────────────────────────────────────
-cat > /tmp/terminal_startup.sh <<SHELL
+cat > /tmp/agy_launch.sh <<SHELL
 #!/bin/bash
+# Environment inside the terminal
+export PATH="/root/.local/bin:/usr/local/bin:\${PATH}"
 export GOOGLE_API_KEY="${GOOGLE_API_KEY}"
 export GEMINI_API_KEY="${GOOGLE_API_KEY}"
 export HASS_HOST="http://supervisor/core"
-export HOME="/config"
+export HOME="/root"
+export TERM=xterm-256color
 
-# Navigate to config directory
-cd /config
+# Work in /config (HA config directory)
+cd /config 2>/dev/null || cd /root
 
-# Display welcome banner
-cat <<'BANNER'
-╔══════════════════════════════════════════════════════════════╗
-║          🚀  ANTIGRAVITY TERMINAL  for Home Assistant        ║
-║          Powered by Google DeepMind's Antigravity CLI        ║
-╠══════════════════════════════════════════════════════════════╣
-║  Your smart home is fully accessible via MCP integration     ║
-║  Type 'agy' to start chatting with your smart home!          ║
-╚══════════════════════════════════════════════════════════════╝
-BANNER
+# ── tmux session management ──────────────────────────────────────────────────
+SESSION="agy"
 
-# Attach or create tmux session for persistence
-# We wrap the CLI in bash so the terminal stays open if agy exits
-SESSION_NAME="antigravity"
-if tmux has-session -t "\${SESSION_NAME}" 2>/dev/null; then
-    echo "📎 Reconnecting to existing Antigravity session..."
-    exec tmux attach-session -t "\${SESSION_NAME}"
+if tmux has-session -t "\${SESSION}" 2>/dev/null; then
+    # Reconnect to existing running session (keeps context & chat history!)
+    exec tmux attach-session -t "\${SESSION}"
 else
-    echo "✨ Starting Antigravity CLI (agy)..."
-    # Use bash -c wrapper: if CLI exits, drop to bash so user keeps a shell
-    exec tmux new-session -s "\${SESSION_NAME}" bash -c "${AG_CMD}; echo ''; echo '⚠️  agy exited. Bash shell ready. Type agy to restart.'; exec bash"
+    # First open: start agy directly inside tmux
+    # If agy exits for any reason, drop to bash so user isn't locked out
+    exec tmux new-session -s "\${SESSION}" \
+        bash --login -c '
+            if command -v agy &>/dev/null; then
+                agy
+            else
+                echo ""
+                echo "  ⚠️  agy not found. Installing..."
+                curl -fsSL https://antigravity.google/cli/install.sh | bash
+                export PATH="/root/.local/bin:\$PATH"
+                agy
+            fi
+            echo ""
+            echo "  ─────────────────────────────────────────────"
+            echo "  agy exited  │  Type '\''agy'\'' to restart"
+            echo "  ─────────────────────────────────────────────"
+            exec bash
+        '
 fi
 SHELL
-chmod +x /tmp/terminal_startup.sh
+chmod +x /tmp/agy_launch.sh
 
 # ────────────────────────────────────────────────────────────────────────────
-# Map cursor style to ttyd format
+# Launch ttyd — the web terminal
+# /tmp/agy_launch.sh is what gets executed when you open the panel
 # ────────────────────────────────────────────────────────────────────────────
-case "${CURSOR_STYLE}" in
-    "underline") TTYD_CURSOR=1 ;;
-    "bar")       TTYD_CURSOR=2 ;;
-    *)           TTYD_CURSOR=0 ;;  # block (default)
-esac
-
-# ────────────────────────────────────────────────────────────────────────────
-# Launch ttyd web terminal
-# ────────────────────────────────────────────────────────────────────────────
-bashio::log.info "Launching ttyd web terminal on port 8099..."
-bashio::log.info "Antigravity CLI command: ${AG_CMD}"
+bashio::log.info "Launching ttyd on port 8099..."
 
 exec ttyd \
     --port 8099 \
     --interface 0.0.0.0 \
     --writable \
     --client-option "fontSize=${FONT_SIZE}" \
-    --client-option "theme={\"background\":\"#0d1117\",\"foreground\":\"#e6edf3\",\"cursor\":\"#58a6ff\",\"cursorAccent\":\"#0d1117\",\"selectionBackground\":\"#264f78\",\"black\":\"#484f58\",\"red\":\"#ff7b72\",\"green\":\"#3fb950\",\"yellow\":\"#d29922\",\"blue\":\"#58a6ff\",\"magenta\":\"#bc8cff\",\"cyan\":\"#39d353\",\"white\":\"#b1bac4\",\"brightBlack\":\"#6e7681\",\"brightRed\":\"#ffa198\",\"brightGreen\":\"#56d364\",\"brightYellow\":\"#e3b341\",\"brightBlue\":\"#79c0ff\",\"brightMagenta\":\"#d2a8ff\",\"brightCyan\":\"#56d364\",\"brightWhite\":\"#f0f6fc\"}" \
     --client-option "cursorStyle=${CURSOR_STYLE}" \
     --client-option "cursorBlink=${CURSOR_BLINK}" \
-    /tmp/terminal_startup.sh
+    --client-option 'theme={"background":"#0d1117","foreground":"#e6edf3","cursor":"#58a6ff","cursorAccent":"#0d1117","selectionBackground":"#264f78","black":"#484f58","red":"#ff7b72","green":"#3fb950","yellow":"#d29922","blue":"#58a6ff","magenta":"#bc8cff","cyan":"#39d353","white":"#b1bac4","brightBlack":"#6e7681","brightRed":"#ffa198","brightGreen":"#56d364","brightYellow":"#e3b341","brightBlue":"#79c0ff","brightMagenta":"#d2a8ff","brightCyan":"#56d364","brightWhite":"#f0f6fc"}' \
+    /tmp/agy_launch.sh
