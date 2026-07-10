@@ -17,39 +17,34 @@ CURSOR_STYLE=$(bashio::config 'cursor_style' 'block')
 CURSOR_BLINK=$(bashio::config 'cursor_blink' 'false')
 
 # ────────────────────────────────────────────────────────────────────────────
-# Environment
+# Set Environment
 # ────────────────────────────────────────────────────────────────────────────
+export HOME="/root"
 export PATH="/root/.local/bin:/usr/local/bin:${PATH}"
 export GOOGLE_API_KEY="${GOOGLE_API_KEY}"
 export GEMINI_API_KEY="${GOOGLE_API_KEY}"   # fallback alias
 export HASS_HOST="http://supervisor/core"
-export HOME="/root"
+
+PERSISTENT_ROOT="/data/agy/root_dir"
 
 # ────────────────────────────────────────────────────────────────────────────
-# Make agy config, data & cache folders persistent across restarts
-# Map them via Symlinks to /data/ (which is persistent in HA addons)
+# Restore root directory from persistent data if exists
 # ────────────────────────────────────────────────────────────────────────────
-export HOME="/root"
-PERSISTENT_DATA_DIR="/data/agy"
-mkdir -p "${PERSISTENT_DATA_DIR}/config"
-mkdir -p "${PERSISTENT_DATA_DIR}/share"
-mkdir -p "${PERSISTENT_DATA_DIR}/cache"
+if [ -d "${PERSISTENT_ROOT}" ]; then
+    bashio::log.info "Restoring persistent home directory..."
+    cp -rp ${PERSISTENT_ROOT}/. /root/ 2>/dev/null || true
+else
+    bashio::log.info "Creating persistent home directory structure..."
+    mkdir -p "${PERSISTENT_ROOT}"
+fi
 
-# Symlink ~/.config/agy -> /data/agy/config
-mkdir -p "${HOME}/.config"
-ln -sfn "${PERSISTENT_DATA_DIR}/config" "${HOME}/.config/agy"
+# Ensure basic subdirs exist
+mkdir -p /root/.config/agy
+mkdir -p /root/.local/share/agy
+mkdir -p /root/.cache/agy
 
-# Symlink ~/.local/share/agy -> /data/agy/share
-mkdir -p "${HOME}/.local/share"
-ln -sfn "${PERSISTENT_DATA_DIR}/share" "${HOME}/.local/share/agy"
-
-# Symlink ~/.cache/agy -> /data/agy/cache
-mkdir -p "${HOME}/.cache"
-ln -sfn "${PERSISTENT_DATA_DIR}/cache" "${HOME}/.cache/agy"
-
-AGY_CONFIG_DIR="${HOME}/.config/agy"
-
-# Only write default config if it does not exist yet (to avoid overwriting user settings)
+# Write default config ONLY if not present
+AGY_CONFIG_DIR="/root/.config/agy"
 if [ ! -f "${AGY_CONFIG_DIR}/config.json" ]; then
     bashio::log.info "Initializing default agy configuration..."
     cat > "${AGY_CONFIG_DIR}/config.json" <<EOF
@@ -84,6 +79,9 @@ else
     bashio::log.warning "agy unavailable - terminal will open as bash shell"
 fi
 
+# Save state to persistent storage immediately after installation/update
+cp -rp /root/. "${PERSISTENT_ROOT}/" 2>/dev/null || true
+
 # ────────────────────────────────────────────────────────────────────────────
 # Install extra packages if configured
 # ────────────────────────────────────────────────────────────────────────────
@@ -104,12 +102,26 @@ if bashio::config.exists 'persistent_pip_packages'; then
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
+# Launch background syncer to periodically backup /root/ to /data/
+# ────────────────────────────────────────────────────────────────────────────
+(
+    # Wait for ttyd to be ready
+    sleep 10
+    while true; do
+        # Copy everything except tmux sockets/temp files to persistent storage
+        cp -rp /root/. "${PERSISTENT_ROOT}/" 2>/dev/null || true
+        # Clean up transient tmux files in persistent storage to prevent lock issues
+        rm -rf "${PERSISTENT_ROOT}/.tmux" 2>/dev/null || true
+        sleep 10
+    done
+) &
+SYNCER_PID=$!
+
+# ────────────────────────────────────────────────────────────────────────────
 # Build the inner shell script that ttyd executes
-# Goal: terminal opens → agy starts IMMEDIATELY, no manual steps
 # ────────────────────────────────────────────────────────────────────────────
 cat > /tmp/agy_launch.sh <<SHELL
 #!/bin/bash
-# Environment inside the terminal
 export PATH="/root/.local/bin:/usr/local/bin:\${PATH}"
 export GOOGLE_API_KEY="${GOOGLE_API_KEY}"
 export GEMINI_API_KEY="${GOOGLE_API_KEY}"
@@ -117,18 +129,14 @@ export HASS_HOST="http://supervisor/core"
 export HOME="/root"
 export TERM=xterm-256color
 
-# Work in /config (HA config directory)
 cd /config 2>/dev/null || cd /root
 
-# ── tmux session management ──────────────────────────────────────────────────
 SESSION="agy"
 
 if tmux has-session -t "\${SESSION}" 2>/dev/null; then
-    # Reconnect to existing running session (keeps context & chat history!)
     exec tmux attach-session -t "\${SESSION}"
 else
-    # First open: start agy directly inside tmux
-    # If agy exits for any reason, drop to bash so user isn't locked out
+    # Launch session, drop to bash if CLI exits
     exec tmux new-session -s "\${SESSION}" \
         bash -c '
             export HOME="/root"
@@ -138,28 +146,6 @@ else
             export HASS_HOST="http://supervisor/core"
             export TERM=xterm-256color
 
-            # Start filesystem watcher in background to find credentials folder
-            (
-                echo "[DEBUG] Filesystem monitor started..."
-                OLD_LIST=""
-                while true; do
-                    NEW_LIST=$(find /root /data -maxdepth 4 -not -path "*/.cache/*" -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null | sort)
-                    if [ "$OLD_LIST" != "" ] && [ "$OLD_LIST" != "$NEW_LIST" ]; then
-                        echo "[DEBUG] Filesystem changed!"
-                        diff <(echo "$OLD_LIST") <(echo "$NEW_LIST") | grep "^>" || true
-                    fi
-                    OLD_LIST="$NEW_LIST"
-                    sleep 3
-                done
-            ) &
-            WATCHER_PID=$!
-
-            # Reinforce symlinks inside this process
-            mkdir -p /root/.config /root/.local/share /root/.cache
-            ln -sfn /data/agy/config /root/.config/agy
-            ln -sfn /data/agy/share /root/.local/share/agy
-            ln -sfn /data/agy/cache /root/.cache/agy
-
             if command -v agy &>/dev/null; then
                 agy
             else
@@ -168,8 +154,6 @@ else
                 curl -fsSL https://antigravity.google/cli/install.sh | bash
                 agy
             fi
-
-            kill $WATCHER_PID 2>/dev/null || true
             echo ""
             echo "  ─────────────────────────────────────────────"
             echo "  agy exited  │  Type '\''agy'\'' to restart"
@@ -181,10 +165,12 @@ SHELL
 chmod +x /tmp/agy_launch.sh
 
 # ────────────────────────────────────────────────────────────────────────────
-# Launch ttyd — the web terminal
-# /tmp/agy_launch.sh is what gets executed when you open the panel
+# Launch ttyd
 # ────────────────────────────────────────────────────────────────────────────
 bashio::log.info "Launching ttyd on port 8099..."
+
+# Trap exit to kill syncer
+trap 'kill $SYNCER_PID 2>/dev/null || true' EXIT
 
 exec ttyd \
     --port 8099 \
