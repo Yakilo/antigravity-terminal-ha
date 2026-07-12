@@ -77,7 +77,7 @@ ENV PATH="/root/.local/bin:${PATH}"
 COPY --from=hab-builder /hab /usr/local/bin/hab
 
 # Copy Web GUI Application
-COPY antigravity-terminal/app /app
+COPY app /app
 RUN cd /app && npm install
 
 # Copy all rootfs files (scripts, configs, etc.)
