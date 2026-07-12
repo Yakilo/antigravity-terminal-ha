@@ -65,12 +65,6 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Install ttyd (web-based terminal) for the correct architecture
-RUN ARCH=$([ "$BUILD_ARCH" = "aarch64" ] && echo "aarch64" || echo "x86_64") \
-    && curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ARCH}" \
-        -o /usr/local/bin/ttyd \
-    && chmod +x /usr/local/bin/ttyd
-
 # Install Antigravity CLI via official install script
 # Binary is installed as 'agy' to ~/.local/bin/agy
 RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \
@@ -82,6 +76,10 @@ ENV PATH="/root/.local/bin:${PATH}"
 # Copy the hab binary from builder stage
 COPY --from=hab-builder /hab /usr/local/bin/hab
 
+# Copy Web GUI Application
+COPY antigravity-terminal/app /app
+RUN cd /app && npm install
+
 # Copy all rootfs files (scripts, configs, etc.)
 COPY rootfs /
 
@@ -89,7 +87,7 @@ COPY rootfs /
 RUN chmod +x /usr/bin/antigravity-startup \
     && chmod +x /etc/cont-init.d/*.sh 2>/dev/null || true
 
-# Expose the ttyd web terminal port
+# Expose the Web Console port
 EXPOSE 8099
 
 # Build labels

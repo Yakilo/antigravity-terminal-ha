@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Antigravity Web GUI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo-area">
+        <svg class="logo-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2L2 22H22L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M12 8L6 20H18L12 8Z" fill="currentColor" opacity="0.3"/>
+        </svg>
+        <div class="logo-text">
+          <h1>Antigravity</h1>
+          <span class="sub-text">Web Agent Console</span>
+        </div>
+      </div>
+      <div class="status-area">
+        <div class="status-indicator connected" id="connection-status">
+          <span class="dot"></span>
+          <span class="status-label">Verbunden</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Workspace Layout -->
+    <div class="workspace">
+      <!-- Chat Container -->
+      <main class="chat-container">
+        <div class="chat-messages" id="chat-messages">
+          <!-- Welcome message -->
+          <div class="message system">
+            <div class="message-content">
+              <p>🤖 Willkommen in der Antigravity Web-Konsole. Initialisiere CLI-Agenten...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Inline Prompt Helper (e.g. for [y/N] choices) -->
+        <div class="prompt-helper-panel hidden" id="prompt-helper">
+          <span class="prompt-text" id="prompt-helper-text">Berechtigung benötigt:</span>
+          <div class="prompt-actions">
+            <button class="btn btn-approve" id="btn-approve">Ja (y)</button>
+            <button class="btn btn-deny" id="btn-deny">Nein (n)</button>
+          </div>
+        </div>
+
+        <!-- Input Area -->
+        <footer class="input-area">
+          <form class="input-form" id="input-form" autocomplete="off">
+            <textarea 
+              id="user-input" 
+              placeholder="Frage den Agenten etwas oder gib eine Aufgabe ein... (Eingabe zum Senden, Shift+Eingabe für neue Zeile)" 
+              rows="1"
+            ></textarea>
+            <button type="submit" class="send-btn" aria-label="Senden" id="send-button">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </form>
+        </footer>
+      </main>
+    </div>
+  </div>
+
+  <script src="index.js" type="module"></script>
+</body>
+</html>

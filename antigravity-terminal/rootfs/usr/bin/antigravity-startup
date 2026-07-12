@@ -50,7 +50,7 @@ if [ ! -f "${AGY_CONFIG_DIR}/config.json" ]; then
     cat > "${AGY_CONFIG_DIR}/config.json" <<EOF
 {
   "theme": "dark",
-  "renderingMode": "alt-screen",
+  "renderingMode": "inline",
   "setupComplete": true,
   "autoAcceptedTermsVersion": 1,
   "workspaceTrustConfirmed": true
@@ -105,79 +105,23 @@ fi
 # Launch background syncer to periodically backup /root/ to /data/
 # ────────────────────────────────────────────────────────────────────────────
 (
-    # Wait for ttyd to be ready
+    # Wait for app server to start
     sleep 10
     while true; do
-        # Copy everything except tmux sockets/temp files to persistent storage
+        # Copy everything except temp files to persistent storage
         cp -rp /root/. "${PERSISTENT_ROOT}/" 2>/dev/null || true
-        # Clean up transient tmux files in persistent storage to prevent lock issues
-        rm -rf "${PERSISTENT_ROOT}/.tmux" 2>/dev/null || true
         sleep 10
     done
 ) &
 SYNCER_PID=$!
 
-# ────────────────────────────────────────────────────────────────────────────
-# Build the inner shell script that ttyd executes
-# ────────────────────────────────────────────────────────────────────────────
-cat > /tmp/agy_launch.sh <<SHELL
-#!/bin/bash
-export PATH="/root/.local/bin:/usr/local/bin:\${PATH}"
-export GOOGLE_API_KEY="${GOOGLE_API_KEY}"
-export GEMINI_API_KEY="${GOOGLE_API_KEY}"
-export HASS_HOST="http://supervisor/core"
-export HOME="/root"
-export TERM=xterm-256color
-
-cd /config 2>/dev/null || cd /root
-
-SESSION="agy"
-
-if tmux has-session -t "\${SESSION}" 2>/dev/null; then
-    exec tmux attach-session -t "\${SESSION}"
-else
-    # Launch session, drop to bash if CLI exits
-    exec tmux new-session -s "\${SESSION}" \
-        bash -c '
-            export HOME="/root"
-            export PATH="/root/.local/bin:/usr/local/bin:$PATH"
-            export GOOGLE_API_KEY="'"${GOOGLE_API_KEY}"'"
-            export GEMINI_API_KEY="'"${GOOGLE_API_KEY}"'"
-            export HASS_HOST="http://supervisor/core"
-            export TERM=xterm-256color
-
-            if command -v agy &>/dev/null; then
-                agy
-            else
-                echo ""
-                echo "  ⚠️  agy not found. Installing..."
-                curl -fsSL https://antigravity.google/cli/install.sh | bash
-                agy
-            fi
-            echo ""
-            echo "  ─────────────────────────────────────────────"
-            echo "  agy exited  │  Type '\''agy'\'' to restart"
-            echo "  ─────────────────────────────────────────────"
-            exec bash
-        '
-fi
-SHELL
-chmod +x /tmp/agy_launch.sh
-
-# ────────────────────────────────────────────────────────────────────────────
-# Launch ttyd
-# ────────────────────────────────────────────────────────────────────────────
-bashio::log.info "Launching ttyd on port 8099..."
-
 # Trap exit to kill syncer
 trap 'kill $SYNCER_PID 2>/dev/null || true' EXIT
 
-exec ttyd \
-    --port 8099 \
-    --interface 0.0.0.0 \
-    --writable \
-    --client-option "fontSize=${FONT_SIZE}" \
-    --client-option "cursorStyle=${CURSOR_STYLE}" \
-    --client-option "cursorBlink=${CURSOR_BLINK}" \
-    --client-option 'theme={"background":"#0d1117","foreground":"#e6edf3","cursor":"#58a6ff","cursorAccent":"#0d1117","selectionBackground":"#264f78","black":"#484f58","red":"#ff7b72","green":"#3fb950","yellow":"#d29922","blue":"#58a6ff","magenta":"#bc8cff","cyan":"#39d353","white":"#b1bac4","brightBlack":"#6e7681","brightRed":"#ffa198","brightGreen":"#56d364","brightYellow":"#e3b341","brightBlue":"#79c0ff","brightMagenta":"#d2a8ff","brightCyan":"#56d364","brightWhite":"#f0f6fc"}' \
-    /tmp/agy_launch.sh
+# ────────────────────────────────────────────────────────────────────────────
+# Launch Web Console (Node.js Application)
+# ────────────────────────────────────────────────────────────────────────────
+bashio::log.info "Launching Web Console Server on port 8099..."
+
+export PORT=8099
+exec node /app/server.js

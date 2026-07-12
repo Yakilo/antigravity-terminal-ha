@@ -1,7 +1,7 @@
 ---
-name: "Antigravity Terminal"
-description: "Terminal interface for Google DeepMind's Antigravity CLI with deep MCP integration for Home Assistant"
-version: "1.0.15"
+name: "Antigravity Console"
+description: "Web Console interface for Google DeepMind's Antigravity CLI (agy)"
+version: "2.0.0"
 slug: "antigravity_terminal"
 url: "https://github.com/yakilo/antigravity-terminal-ha"
 arch:
@@ -15,7 +15,7 @@ ingress: true
 ingress_port: 8099
 ingress_stream: true
 panel_icon: mdi:robot-excited-outline
-panel_title: "Antigravity Terminal"
+panel_title: "Antigravity"
 
 # File access - Home Assistant config directory
 map:
@@ -42,19 +42,9 @@ options:
   # Extra pip packages to install persistently
   persistent_pip_packages: []
 
-  # Terminal appearance
-  terminal_theme: "breeze"
-  font_size: 14
-  cursor_style: "block"
-  cursor_blink: false
-
 schema:
   google_api_key: str
   persistent_apk_packages:
     - str
   persistent_pip_packages:
     - str
-  terminal_theme: str
-  font_size: int
-  cursor_style: list(block|underline|bar)
-  cursor_blink: bool
