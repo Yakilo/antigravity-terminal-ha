@@ -71,68 +71,56 @@ function stripAnsi(str) {
 wss.on('connection', (ws) => {
   console.log('[WebSocket] Client connected');
 
-  // Environment variables for agy
-  const env = {
-    ...process.env,
-    HOME: '/root',
-    PATH: '/root/.local/bin:/usr/local/bin:' + (process.env.PATH || ''),
-    TERM: 'xterm-256color',
-    FORCE_COLOR: '1'
-  };
+  let captureInterval = null;
+  let lastCapturedText = '';
 
-  // Spawn agy process with TTY emulation on Linux
-  // CLI tools require a real TTY to behave interactively and read stdin.
-  // We use the system 'script' utility to allocate a PTY without native C++ modules.
-  let agyProcess;
-  if (process.platform === 'win32') {
-    console.log('[Process] Windows detected: spawning agy directly');
-    agyProcess = spawn('cmd.exe', ['/c', 'agy'], { env, cwd: 'C:\\git\\antigravity-terminal' });
-  } else {
-    console.log('[Process] Linux detected: spawning agy via PTY emulation (script)');
-    agyProcess = spawn('script', ['-q', '-c', 'agy', '/dev/null'], { env, cwd: '/config' });
-  }
-
-  console.log(`[Process] Spawned agy (PID: ${agyProcess.pid})`);
-
-  // Handle data from agy stdout
-  agyProcess.stdout.on('data', (data) => {
-    const rawText = data.toString();
-    const cleanText = stripAnsi(rawText);
-
-    // Parse potential interactive questions/permission prompts
-    // e.g., "Do you want to run this command? [y/N]" or OAuth login prompts
-    let isPrompt = false;
-    if (cleanText.includes('[y/N]') || cleanText.includes('[Use arrow keys') || cleanText.includes('Select login method:')) {
-      isPrompt = true;
+  // Function to capture the current tmux terminal screen
+  const captureTmuxScreen = () => {
+    if (process.platform === 'win32') {
+      // Local Windows fallback simulation
+      ws.send(JSON.stringify({
+        type: 'output',
+        clean: 'Windows mode: Tmux emulation is active. Type commands in input.'
+      }));
+      return;
     }
 
-    // Send payload to frontend
-    ws.send(JSON.stringify({
-      type: 'output',
-      data: rawText,
-      clean: cleanText,
-      isPrompt: isPrompt
-    }));
-  });
+    // Execute tmux capture-pane to fetch the screen content of the terminal
+    // -t agy: targeted pane
+    // -p: print to stdout
+    const tmuxCapture = spawn('tmux', ['capture-pane', '-t', 'agy', '-p']);
+    let output = '';
 
-  // Handle data from agy stderr
-  agyProcess.stderr.on('data', (data) => {
-    const rawText = data.toString();
-    ws.send(JSON.stringify({
-      type: 'error',
-      data: rawText,
-      clean: stripAnsi(rawText)
-    }));
-  });
+    tmuxCapture.stdout.on('data', (data) => {
+      output += data.toString();
+    });
 
-  // Handle process exit
-  agyProcess.on('exit', (code) => {
-    console.log(`[Process] agy exited with code ${code}`);
-    ws.send(JSON.stringify({
-      type: 'exit',
-      code: code
-    }));
-  });
+    tmuxCapture.on('close', (code) => {
+      if (code === 0 && output !== lastCapturedText) {
+        lastCapturedText = output;
+        
+        // Strip ANSI codes if needed (or let the terminal render them)
+        const cleanText = stripAnsi(output);
+        
+        // Check if there is an active prompt
+        let isPrompt = cleanText.includes('[y/N]') || cleanText.includes('Select login method:');
+
+        ws.send(JSON.stringify({
+          type: 'output',
+          data: output,
+          clean: cleanText,
+          isPrompt: isPrompt
+        }));
+      }
+    });
+  };
+
+  // Start polling the tmux screen state (every 800ms for fast feedback)
+  if (process.platform !== 'win32') {
+    captureInterval = setInterval(captureTmuxScreen, 800);
+    // Initial capture
+    captureTmuxScreen();
+  }
 
   // Handle incoming messages from frontend
   ws.on('message', (message) => {
@@ -140,8 +128,30 @@ wss.on('connection', (ws) => {
       const payload = JSON.parse(message.toString());
 
       if (payload.type === 'input') {
-        console.log(`[WebSocket] Received input: ${payload.data.trim()}`);
-        agyProcess.stdin.write(payload.data + '\n');
+        const inputText = payload.data;
+        console.log(`[WebSocket] Received input to send to tmux: ${inputText.trim()}`);
+
+        if (process.platform === 'win32') {
+          // Windows simulator echoing back input
+          ws.send(JSON.stringify({
+            type: 'output',
+            clean: `Echo (Windows): ${inputText}`
+          }));
+          return;
+        }
+
+        // Send the input keys directly into the running tmux panel
+        // tmux send-keys -t agy "keys" Enter
+        const tmuxSend = spawn('tmux', ['send-keys', '-t', 'agy', inputText, 'Enter']);
+        
+        tmuxSend.on('close', (code) => {
+          if (code !== 0) {
+            console.error(`[Tmux] Failed to send keys to session. Code: ${code}`);
+          } else {
+            // Instantly capture after sending keys to make the UI feel fast
+            setTimeout(captureTmuxScreen, 100);
+          }
+        });
       }
     } catch (err) {
       console.error('[WebSocket] Error parsing client message:', err);
@@ -150,12 +160,16 @@ wss.on('connection', (ws) => {
 
   // Clean up on disconnect
   ws.on('close', () => {
-    console.log('[WebSocket] Client disconnected. Terminating agy process...');
-    agyProcess.kill('SIGTERM');
+    console.log('[WebSocket] Client disconnected');
+    if (captureInterval) {
+      clearInterval(captureInterval);
+    }
   });
 
   ws.on('error', (err) => {
     console.error('[WebSocket] Error:', err);
-    agyProcess.kill('SIGKILL');
+    if (captureInterval) {
+      clearInterval(captureInterval);
+    }
   });
 });

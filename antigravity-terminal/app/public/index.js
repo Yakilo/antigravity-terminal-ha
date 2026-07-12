@@ -46,14 +46,9 @@ function connect() {
       const message = JSON.parse(event.data);
 
       if (message.type === 'output') {
-        handleAgentOutput(message.clean, message.isPrompt);
+        renderScreenCapture(message.clean, message.isPrompt);
       } else if (message.type === 'error') {
-        handleAgentOutput(message.clean, false, true);
-      } else if (message.type === 'exit') {
-        addSystemMessage(`⏹️ CLI-Prozess beendet (Exit Code: ${message.code})`);
-        promptHelper.classList.add('hidden');
-        isStreaming = false;
-        currentAgentMessageElement = null;
+        renderScreenCapture(message.clean, false);
       }
     } catch (err) {
       console.error('[WebSocket] Error parsing server message:', err);
@@ -104,42 +99,90 @@ function formatMarkdown(text) {
   return html;
 }
 
-// Append or stream text from Agent
-function handleAgentOutput(text, isPrompt, isError = false) {
+// Parse the full tmux terminal screen capture into separate chat bubbles
+function renderScreenCapture(text, isPrompt) {
   if (!text || text.trim() === '') return;
 
-  // Auto-scroll to bottom
-  const shouldScroll = chatMessages.scrollHeight - chatMessages.scrollTop <= chatMessages.clientHeight + 100;
-
-  // Detect and format prompt choices
-  if (isPrompt) {
-    showPromptHelper(text);
+  // Clear previous chat messages (except the initial system one)
+  const systemMsg = chatMessages.querySelector('.message.system');
+  chatMessages.innerHTML = '';
+  if (systemMsg) {
+    chatMessages.appendChild(systemMsg);
   }
 
-  // If we are currently streaming and have an active agent bubble, append
-  if (isStreaming && currentAgentMessageElement) {
-    const bubble = currentAgentMessageElement.querySelector('.message-content');
-    const updatedRaw = bubble.getAttribute('data-raw') + text;
-    bubble.setAttribute('data-raw', updatedRaw);
-    bubble.innerHTML = formatMarkdown(updatedRaw);
-  } else {
-    // Start a new agent message bubble
-    isStreaming = true;
-    currentAgentMessageElement = document.createElement('div');
-    currentAgentMessageElement.className = `message ${isError ? 'system' : 'agent'}`;
+  const lines = text.split('\n');
+  let currentBubbleType = null; // 'user' or 'agent'
+  let currentBubbleText = [];
+
+  const createBubble = (type, linesArray) => {
+    if (linesArray.length === 0) return;
+    const cleanBubbleText = linesArray.join('\n').trim();
+    if (cleanBubbleText === '') return;
+
+    const bubble = document.createElement('div');
+    bubble.className = `message ${type}`;
 
     const content = document.createElement('div');
     content.className = 'message-content';
-    content.setAttribute('data-raw', text);
-    content.innerHTML = formatMarkdown(text);
+    content.setAttribute('data-raw', cleanBubbleText);
 
-    currentAgentMessageElement.appendChild(content);
-    chatMessages.appendChild(currentAgentMessageElement);
+    if (type === 'user') {
+      content.innerText = cleanBubbleText;
+    } else {
+      content.innerHTML = formatMarkdown(cleanBubbleText);
+    }
+
+    bubble.appendChild(content);
+    chatMessages.appendChild(bubble);
+  };
+
+  // Helper patterns to identify user inputs in terminal
+  const userPromptRegex = /^(\s*agy\s*>|>\s*|\$\s*|root@.*:~#\s*)/;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const isUserLine = userPromptRegex.test(line);
+
+    if (isUserLine) {
+      // Flush previous agent bubble if existed
+      if (currentBubbleType === 'agent') {
+        createBubble('agent', currentBubbleText);
+        currentBubbleText = [];
+      }
+      currentBubbleType = 'user';
+      // Strip the command prompt prefix from rendering
+      const cleanCmd = line.replace(userPromptRegex, '').trim();
+      if (cleanCmd !== '') {
+        currentBubbleText.push(cleanCmd);
+      }
+    } else {
+      // Flush previous user bubble if existed
+      if (currentBubbleType === 'user') {
+        createBubble('user', currentBubbleText);
+        currentBubbleText = [];
+      }
+      currentBubbleType = 'agent';
+      currentBubbleText.push(line);
+    }
   }
 
-  if (shouldScroll) {
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+  // Flush remaining bubble
+  if (currentBubbleType && currentBubbleText.length > 0) {
+    createBubble(currentBubbleType, currentBubbleText);
   }
+
+  // Render the prompt choices buttons overlay
+  if (isPrompt) {
+    // Find the last line to show as prompt context
+    const nonBlankLines = lines.filter(l => l.trim() !== '');
+    const lastLine = nonBlankLines[nonBlankLines.length - 1] || 'Aktion bestätigen:';
+    showPromptHelper(lastLine);
+  } else {
+    promptHelper.classList.add('hidden');
+  }
+
+  // Auto scroll to bottom
+  chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
 // Append a system notification
