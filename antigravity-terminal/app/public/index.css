@@ -421,3 +421,40 @@ body {
     padding: 12px 16px;
   }
 }
+
+/* Status Area Flex Container */
+.status-area {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* Toggle View Button styling */
+.btn-toggle {
+  background-color: var(--bg-tertiary);
+  color: var(--text-muted);
+  border: 1px solid var(--border-muted);
+  transition: all 0.2s ease;
+}
+
+.btn-toggle:hover {
+  background-color: var(--primary);
+  color: var(--text-main);
+  border-color: transparent;
+  box-shadow: 0 0 12px var(--primary-glow);
+}
+
+.btn-toggle.active {
+  background-color: var(--primary);
+  color: var(--text-main);
+  border-color: transparent;
+}
+
+/* Fullscreen Terminal Iframe styling */
+.terminal-frame {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background-color: #000;
+}

@@ -65,6 +65,13 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
+# Install ttyd (web-based terminal) for the correct architecture
+ARG TTYD_VERSION=1.7.7
+RUN ARCH=$([ "$BUILD_ARCH" = "aarch64" ] && echo "aarch64" || echo "x86_64") \
+    && curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ARCH}" \
+        -o /usr/local/bin/ttyd \
+    && chmod +x /usr/local/bin/ttyd
+
 # Install Antigravity CLI via official install script
 # Binary is installed as 'agy' to ~/.local/bin/agy
 RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \

@@ -228,5 +228,34 @@ btnDeny.addEventListener('click', () => {
   promptHelper.classList.add('hidden');
 });
 
+// View Toggle Logic (Chat vs. Raw Terminal)
+const toggleViewBtn = document.getElementById('toggle-view');
+const chatContainer = document.getElementById('chat-container');
+const terminalFrame = document.getElementById('terminal-frame');
+
+toggleViewBtn.addEventListener('click', () => {
+  const isTerminalHidden = terminalFrame.classList.contains('hidden');
+
+  if (isTerminalHidden) {
+    // Show Terminal
+    // Ingress URL format is relative: "terminal/" (redirects to proxied ttyd port)
+    // We add a timestamp to force fresh loading and prevent old cache loops
+    const base = window.location.pathname.replace(/\/$/, '');
+    terminalFrame.src = `${base}/terminal/`;
+    
+    terminalFrame.classList.remove('hidden');
+    chatContainer.classList.add('hidden');
+    toggleViewBtn.innerText = 'Chat anzeigen';
+    toggleViewBtn.classList.add('active');
+  } else {
+    // Show Chat Console
+    terminalFrame.classList.add('hidden');
+    terminalFrame.src = ''; // Unload iframe to save memory/cpu
+    chatContainer.classList.remove('hidden');
+    toggleViewBtn.innerText = 'Terminal anzeigen';
+    toggleViewBtn.classList.remove('active');
+  }
+});
+
 // Start connection
 connect();

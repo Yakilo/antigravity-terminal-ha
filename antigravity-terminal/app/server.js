@@ -4,11 +4,30 @@ import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import httpProxy from 'http-proxy';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const port = process.env.PORT || 8099;
+const ttydPort = 8098;
+
+// Create http proxy
+const proxy = httpProxy.createProxyServer({
+  target: `http://localhost:${ttydPort}`,
+  ws: true
+});
+
+// Proxy HTTP requests for /terminal
+app.all('/terminal*', (req, res) => {
+  // Rewrite path to remove /terminal prefix when passing to ttyd
+  req.url = req.url.replace(/^\/terminal/, '') || '/';
+  proxy.web(req, res, {}, (err) => {
+    console.error('[Proxy] Error forwarding HTTP request:', err);
+    res.status(502).send('Terminal server unavailable');
+  });
+});
 
 // Serve static frontend files
 app.use(express.static(path.join(__dirname, 'public')));
@@ -22,8 +41,27 @@ const server = app.listen(port, '0.0.0.0', () => {
   console.log(`[Backend] Web GUI server listening on port ${port}`);
 });
 
-// Create WebSocket server
-const wss = new WebSocketServer({ server });
+// Create WebSocket server (not attached to HTTP server directly, we handle upgrades manually)
+const wss = new WebSocketServer({ noServer: true });
+
+// Handle manual upgrade events
+server.on('upgrade', (request, socket, head) => {
+  const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
+
+  // If path contains /terminal, proxy WebSocket to ttyd
+  if (pathname.includes('/terminal')) {
+    // Rewrite path for ttyd
+    request.url = request.url.replace(/\/terminal/, '');
+    proxy.ws(request, socket, head, {}, (err) => {
+      console.error('[Proxy] Error forwarding WebSocket upgrade:', err);
+    });
+  } else {
+    // Handle standard Chat WebSocket connection
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
+  }
+});
 
 // Helper to strip ANSI escape codes
 function stripAnsi(str) {

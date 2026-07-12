@@ -24,6 +24,7 @@
         </div>
       </div>
       <div class="status-area">
+        <button class="btn btn-toggle" id="toggle-view">Terminal anzeigen</button>
         <div class="status-indicator connected" id="connection-status">
           <span class="dot"></span>
           <span class="status-label">Verbunden</span>
@@ -33,8 +34,11 @@
 
     <!-- Main Workspace Layout -->
     <div class="workspace">
+      <!-- Terminal Iframe (hidden by default) -->
+      <iframe class="terminal-frame hidden" id="terminal-frame" src=""></iframe>
+
       <!-- Chat Container -->
-      <main class="chat-container">
+      <main class="chat-container" id="chat-container">
         <div class="chat-messages" id="chat-messages">
           <!-- Welcome message -->
           <div class="message system">

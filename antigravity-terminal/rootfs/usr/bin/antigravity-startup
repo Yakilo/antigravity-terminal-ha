@@ -1,7 +1,7 @@
 #!/usr/bin/with-contenv bashio
 # ==============================================================================
 # Antigravity Terminal - Main Startup Script
-# Configures environment and launches ttyd web terminal with agy CLI
+# Configures environment and launches Web Console with embedded Raw Terminal
 # ==============================================================================
 
 set -euo pipefail
@@ -44,13 +44,14 @@ mkdir -p /root/.local/share/agy
 mkdir -p /root/.cache/agy
 
 # Write default config ONLY if not present
+# We keep alt-screen as default for the Raw Terminal TUI experience
 AGY_CONFIG_DIR="/root/.config/agy"
 if [ ! -f "${AGY_CONFIG_DIR}/config.json" ]; then
     bashio::log.info "Initializing default agy configuration..."
     cat > "${AGY_CONFIG_DIR}/config.json" <<EOF
 {
   "theme": "dark",
-  "renderingMode": "inline",
+  "renderingMode": "alt-screen",
   "setupComplete": true,
   "autoAcceptedTermsVersion": 1,
   "workspaceTrustConfirmed": true
@@ -105,23 +106,82 @@ fi
 # Launch background syncer to periodically backup /root/ to /data/
 # ────────────────────────────────────────────────────────────────────────────
 (
-    # Wait for app server to start
-    sleep 10
+    sleep 15
     while true; do
-        # Copy everything except temp files to persistent storage
         cp -rp /root/. "${PERSISTENT_ROOT}/" 2>/dev/null || true
+        # Clean up transient tmux files to prevent lock issues on reboot
+        rm -rf "${PERSISTENT_ROOT}/.tmux" 2>/dev/null || true
         sleep 10
     done
 ) &
 SYNCER_PID=$!
 
-# Trap exit to kill syncer
-trap 'kill $SYNCER_PID 2>/dev/null || true' EXIT
+# ────────────────────────────────────────────────────────────────────────────
+# Generate launcher script for ttyd (Raw Terminal)
+# Uses tmux for persistence
+# ────────────────────────────────────────────────────────────────────────────
+cat > /tmp/agy_launch.sh <<SHELL
+#!/bin/bash
+export PATH="/root/.local/bin:/usr/local/bin:\${PATH}"
+export GOOGLE_API_KEY="${GOOGLE_API_KEY}"
+export GEMINI_API_KEY="${GOOGLE_API_KEY}"
+export HASS_HOST="http://supervisor/core"
+export HOME="/root"
+export TERM=xterm-256color
+
+cd /config 2>/dev/null || cd /root
+SESSION="agy"
+
+if tmux has-session -t "\${SESSION}" 2>/dev/null; then
+    exec tmux attach-session -t "\${SESSION}"
+else
+    exec tmux new-session -s "\${SESSION}" \
+        bash -c '
+            export HOME="/root"
+            export PATH="/root/.local/bin:/usr/local/bin:$PATH"
+            export GOOGLE_API_KEY="'"${GOOGLE_API_KEY}"'"
+            export GEMINI_API_KEY="'"${GOOGLE_API_KEY}"'"
+            export HASS_HOST="http://supervisor/core"
+            export TERM=xterm-256color
+
+            if command -v agy &>/dev/null; then
+                agy
+            else
+                echo ""
+                echo "  ⚠️  agy not found. Installing..."
+                curl -fsSL https://antigravity.google/cli/install.sh | bash
+                agy
+            fi
+            echo ""
+            echo "  ─────────────────────────────────────────────"
+            echo "  agy exited  │  Type '\''agy'\'' to restart"
+            echo "  ─────────────────────────────────────────────"
+            exec bash
+        '
+fi
+SHELL
+chmod +x /tmp/agy_launch.sh
 
 # ────────────────────────────────────────────────────────────────────────────
-# Launch Web Console (Node.js Application)
+# Launch ttyd (Raw Terminal) on Port 8098 (bind to localhost)
+# ────────────────────────────────────────────────────────────────────────────
+bashio::log.info "Launching ttyd backend on port 8098..."
+ttyd \
+    --port 8098 \
+    --interface 127.0.0.1 \
+    --writable \
+    --client-option "fontSize=${FONT_SIZE}" \
+    --client-option "cursorStyle=${CURSOR_STYLE}" \
+    --client-option "cursorBlink=${CURSOR_BLINK}" \
+    /tmp/agy_launch.sh &
+TTYD_PID=$!
+
+# Trap exit to kill background processes
+trap 'kill $SYNCER_PID $TTYD_PID 2>/dev/null || true' EXIT
+
+# ────────────────────────────────────────────────────────────────────────────
+# Launch Web Console (Node.js Application) on Port 8099
 # ────────────────────────────────────────────────────────────────────────────
 bashio::log.info "Launching Web Console Server on port 8099..."
-
 export PORT=8099
 exec node /app/server.js
