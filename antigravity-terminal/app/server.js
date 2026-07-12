@@ -80,12 +80,17 @@ wss.on('connection', (ws) => {
     FORCE_COLOR: '1'
   };
 
-  // Spawn agy process
-  // We use bash -c wrapper so that PATH is fully resolved and agy runs in a shell context
-  const agyProcess = spawn('bash', ['-c', 'agy'], {
-    env,
-    cwd: '/config'
-  });
+  // Spawn agy process with TTY emulation on Linux
+  // CLI tools require a real TTY to behave interactively and read stdin.
+  // We use the system 'script' utility to allocate a PTY without native C++ modules.
+  let agyProcess;
+  if (process.platform === 'win32') {
+    console.log('[Process] Windows detected: spawning agy directly');
+    agyProcess = spawn('cmd.exe', ['/c', 'agy'], { env, cwd: 'C:\\git\\antigravity-terminal' });
+  } else {
+    console.log('[Process] Linux detected: spawning agy via PTY emulation (script)');
+    agyProcess = spawn('script', ['-q', '-c', 'agy', '/dev/null'], { env, cwd: '/config' });
+  }
 
   console.log(`[Process] Spawned agy (PID: ${agyProcess.pid})`);
 
