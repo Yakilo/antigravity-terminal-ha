@@ -15,7 +15,10 @@ const btnDeny = document.getElementById('btn-deny');
 // Connect to WebSocket server
 function connect() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}/ws`;
+  // HA Ingress serves the addon under a subpath (/api/hassio_ingress/TOKEN/)
+  // We must ensure the WebSocket goes through this token path
+  const path = window.location.pathname.replace(/\/$/, '');
+  const wsUrl = `${protocol}//${window.location.host}${path}/ws`;
 
   socket = new WebSocket(wsUrl);
 
