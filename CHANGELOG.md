@@ -5,6 +5,15 @@ All notable changes to the **Antigravity Console** Home Assistant addon will be 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.8] - 2026-07-13
+
+### Added
+- **Multi-session Chat Sidebar**: Added a collapsible left sidebar to manage multiple separate chat histories simultaneously, powered by persistent session metadata.
+- **Setup Wizard Custom Views**: Re-implemented the initial CLI setup dialogues (OAuth login, authorization input, color scheme selector, Terms of Service, workspace trust confirmation) as gorgeous modern Web GUI overlay cards with direct websocket interactions.
+
+### Improved
+- **Smoother CSS Animations**: Optimized transitions using hardware-accelerated transforms and opacity properties to eliminate layout shifting and UI flickering.
+
 ## [2.1.7] - 2026-07-13
 
 ### Fixed
@@ -87,6 +96,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AppArmor security** — Runs in an isolated Docker container with Home Assistant AppArmor.
 - **HA config directory mount** — Read/write access to `/config` for file operations.
 
+[2.1.8]: https://github.com/Yakilo/antigravity-terminal-ha/compare/v2.1.7...v2.1.8
 [2.1.7]: https://github.com/Yakilo/antigravity-terminal-ha/compare/v2.1.6...v2.1.7
 [2.1.6]: https://github.com/Yakilo/antigravity-terminal-ha/compare/v2.1.5...v2.1.6
 [2.1.5]: https://github.com/Yakilo/antigravity-terminal-ha/compare/v2.1.4...v2.1.5

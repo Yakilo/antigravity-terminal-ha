@@ -1,8 +1,4 @@
-// ─── WebSocket Management ──────────────────────────────────────────────────
-let socket = null;
-let reconnectDelay = 1000; // Start at 1s, exponential backoff
-const MAX_RECONNECT_DELAY = 30000; // Cap at 30s
-
+// ─── DOM Elements ──────────────────────────────────────────────────────────
 const chatMessages = document.getElementById('chat-messages');
 const inputForm = document.getElementById('input-form');
 const userInput = document.getElementById('user-input');
@@ -12,25 +8,73 @@ const promptHelperText = document.getElementById('prompt-helper-text');
 const btnApprove = document.getElementById('btn-approve');
 const btnDeny = document.getElementById('btn-deny');
 
-// Variable to track currently highlighted choice button
+const sidebar = document.getElementById('sidebar');
+const toggleSidebarBtn = document.getElementById('toggle-sidebar');
+const newChatBtn = document.getElementById('new-chat-btn');
+const sessionsList = document.getElementById('sessions-list');
+const chatContainer = document.getElementById('chat-container');
+const setupWizardContainer = document.getElementById('setup-wizard-container');
+const inputAreaContainer = document.getElementById('input-area-container');
+
+const toggleViewBtn = document.getElementById('toggle-view');
+const terminalFrame = document.getElementById('terminal-frame');
+const appVersion = document.getElementById('app-version');
+
+// ─── App State ──────────────────────────────────────────────────────────────
+let socket = null;
+let reconnectDelay = 1000;
+const MAX_RECONNECT_DELAY = 30000;
+
+let currentSessionId = 'agy';
+let allSessions = [];
+let isTerminalView = false;
 let highlightedChoiceIdx = -1;
 
-function getChoiceButtons() {
-  const lastAgentMessage = chatMessages.querySelector('.message.agent:last-of-type');
-  if (!lastAgentMessage) return [];
-  return Array.from(lastAgentMessage.querySelectorAll('.choice-btn'));
+// ─── Version Fetcher ────────────────────────────────────────────────────────
+async function fetchVersion() {
+  try {
+    const res = await fetch('./api/version');
+    const data = await res.json();
+    if (data.version && appVersion) {
+      appVersion.innerText = `v${data.version}`;
+    }
+  } catch (err) {
+    console.error('Error fetching version:', err);
+  }
+}
+fetchVersion();
+
+// ─── Sidebar Toggle ─────────────────────────────────────────────────────────
+if (toggleSidebarBtn) {
+  toggleSidebarBtn.addEventListener('click', () => {
+    sidebar.classList.toggle('collapsed');
+  });
 }
 
-function clearChoiceHighlighting() {
-  getChoiceButtons().forEach(btn => btn.classList.remove('highlighted'));
-  highlightedChoiceIdx = -1;
+// ─── Raw Terminal View Toggle ───────────────────────────────────────────────
+if (toggleViewBtn) {
+  toggleViewBtn.addEventListener('click', () => {
+    isTerminalView = !isTerminalView;
+    if (isTerminalView) {
+      toggleViewBtn.innerText = 'Show Chat';
+      toggleViewBtn.classList.add('active');
+      terminalFrame.classList.remove('hidden');
+      
+      // Load current ttyd session url
+      const path = window.location.pathname.replace(/\/$/, '');
+      terminalFrame.src = `${path}/terminal/`;
+    } else {
+      toggleViewBtn.innerText = 'Show Terminal';
+      toggleViewBtn.classList.remove('active');
+      terminalFrame.classList.add('hidden');
+      terminalFrame.src = '';
+    }
+  });
 }
 
-// ─── WebSocket Connection with Exponential Backoff ─────────────────────────
-
+// ─── WebSocket Management ──────────────────────────────────────────────────
 function connect() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  // HA Ingress serves the addon under a subpath (/api/hassio_ingress/TOKEN/)
   const path = window.location.pathname.replace(/\/$/, '');
   const wsUrl = `${protocol}//${window.location.host}${path}/ws`;
 
@@ -38,19 +82,15 @@ function connect() {
 
   socket.onopen = () => {
     console.log('[WebSocket] Connected');
-    reconnectDelay = 1000; // Reset backoff on successful connection
+    reconnectDelay = 1000;
     setConnectionState(true);
-    addSystemMessage('🔌 Connected to Antigravity CLI.');
   };
 
   socket.onclose = () => {
     console.log(`[WebSocket] Disconnected. Reconnecting in ${reconnectDelay / 1000}s...`);
     setConnectionState(false);
-    addSystemMessage(`❌ Connection lost. Retrying in ${Math.round(reconnectDelay / 1000)}s...`);
     promptHelper.classList.add('hidden');
-    clearChoiceHighlighting();
     setTimeout(connect, reconnectDelay);
-    // Exponential backoff with jitter
     reconnectDelay = Math.min(reconnectDelay * 1.5 + Math.random() * 500, MAX_RECONNECT_DELAY);
   };
 
@@ -62,16 +102,36 @@ function connect() {
   socket.onmessage = (event) => {
     try {
       const message = JSON.parse(event.data);
-      if (message.type === 'output') {
-        renderScreenCapture(message.clean, message.isPrompt);
+
+      if (message.type === 'sessions') {
+        allSessions = message.sessions;
+        if (message.activeSessionId) {
+          currentSessionId = message.activeSessionId;
+        }
+        renderSessionsList();
+      } 
+      
+      else if (message.type === 'active_session_changed') {
+        currentSessionId = message.activeSessionId;
+        updateActiveSessionUI();
+        
+        // If viewing terminal, reload the terminal to point to new tmux attachment
+        if (isTerminalView) {
+          const path = window.location.pathname.replace(/\/$/, '');
+          terminalFrame.src = `${path}/terminal/`;
+        }
+      } 
+      
+      else if (message.type === 'output') {
+        if (message.sessionId === currentSessionId) {
+          processOutput(message.clean, message.isPrompt);
+        }
       }
     } catch (err) {
-      console.error('[WebSocket] Error parsing server message:', err);
+      console.error('[WebSocket] Error parsing message:', err);
     }
   };
 }
-
-// ─── Connection Status UI ──────────────────────────────────────────────────
 
 function setConnectionState(connected) {
   if (connected) {
@@ -83,49 +143,429 @@ function setConnectionState(connected) {
   }
 }
 
-// ─── Markdown Formatter ────────────────────────────────────────────────────
+// ─── Sidebar Sessions List Rendering ─────────────────────────────────────────────
+function renderSessionsList() {
+  sessionsList.innerHTML = '';
+  
+  allSessions.forEach(session => {
+    const item = document.createElement('div');
+    item.className = `session-item ${session.id === currentSessionId ? 'active' : ''}`;
+    item.setAttribute('data-id', session.id);
 
+    // Title label
+    const titleWrapper = document.createElement('div');
+    titleWrapper.className = 'session-title-wrapper';
+    
+    // Bubble Icon
+    titleWrapper.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;flex-shrink:0;">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+      </svg>
+      <span class="session-title">${escapeHtml(session.title)}</span>
+    `;
+
+    // Action buttons (rename & delete)
+    const actions = document.createElement('div');
+    actions.className = 'session-actions';
+
+    // Rename
+    const renameBtn = document.createElement('button');
+    renameBtn.className = 'btn-session-action rename';
+    renameBtn.title = 'Rename Chat';
+    renameBtn.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4Z"/>
+      </svg>
+    `;
+    renameBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const newTitle = prompt('Enter new name:', session.title);
+      if (newTitle && newTitle.trim() !== '') {
+        socket.send(JSON.stringify({
+          type: 'rename_session',
+          sessionId: session.id,
+          title: newTitle.trim()
+        }));
+      }
+    });
+
+    // Delete (only show if multiple sessions exist)
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn-session-action delete';
+    deleteBtn.title = 'Delete Chat';
+    deleteBtn.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/>
+      </svg>
+    `;
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (confirm(`Are you sure you want to delete "${session.title}"?`)) {
+        socket.send(JSON.stringify({
+          type: 'delete_session',
+          sessionId: session.id
+        }));
+      }
+    });
+
+    actions.appendChild(renameBtn);
+    if (allSessions.length > 1) {
+      actions.appendChild(deleteBtn);
+    }
+
+    item.appendChild(titleWrapper);
+    item.appendChild(actions);
+
+    item.addEventListener('click', () => {
+      if (session.id !== currentSessionId) {
+        socket.send(JSON.stringify({
+          type: 'select_session',
+          sessionId: session.id
+        }));
+      }
+    });
+
+    sessionsList.appendChild(item);
+  });
+}
+
+function updateActiveSessionUI() {
+  document.querySelectorAll('.session-item').forEach(item => {
+    if (item.getAttribute('data-id') === currentSessionId) {
+      item.classList.add('active');
+    } else {
+      item.classList.remove('active');
+    }
+  });
+}
+
+if (newChatBtn) {
+  newChatBtn.addEventListener('click', () => {
+    socket.send(JSON.stringify({
+      type: 'create_session'
+    }));
+  });
+}
+
+// ─── Wizard Sniffer & Output Router ─────────────────────────────────────────
+function processOutput(cleanText, isPrompt) {
+  // Sniff setup screens
+  if (cleanText.includes('Select login method:')) {
+    renderLoginWizard();
+  } else if (cleanText.includes('paste the authorization code below:')) {
+    renderAuthCodeWizard(cleanText);
+  } else if (cleanText.includes('Choose your color scheme:')) {
+    renderThemeWizard(cleanText);
+  } else if (cleanText.includes('Terms of Service & Data Use')) {
+    renderTermsWizard(cleanText);
+  } else if (cleanText.includes('Do you trust the contents of this project?')) {
+    renderTrustFolderWizard(cleanText);
+  } else {
+    // Regular chat output
+    setupWizardContainer.classList.add('hidden');
+    chatMessages.classList.remove('hidden');
+    inputAreaContainer.classList.remove('hidden');
+    
+    renderChatMessages(cleanText, isPrompt);
+  }
+}
+
+// ─── Render Setup Wizard Views ──────────────────────────────────────────────
+
+function drawWizardHeader(title, subtitle) {
+  return `
+    <div class="wizard-header">
+      <div class="wizard-logo-float">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2L2 22H22L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M12 8L6 20H18L12 8Z" fill="currentColor" opacity="0.3"/>
+        </svg>
+      </div>
+      <h2>${title}</h2>
+      <p>${subtitle}</p>
+    </div>
+  `;
+}
+
+// 1. Login selection
+function renderLoginWizard() {
+  setupWizardContainer.innerHTML = `
+    <div class="wizard-card">
+      ${drawWizardHeader('Welcome to Antigravity CLI', 'Select a login method to authenticate with Google.')}
+      <div class="wizard-content">
+        <div class="wizard-grid">
+          <div class="wizard-choice-card" id="login-oauth">
+            <span class="badge">Recommended</span>
+            <h3>Google OAuth</h3>
+            <p>Log in dynamically using your personal Google Account web flow.</p>
+          </div>
+          <div class="wizard-choice-card" id="login-cloud">
+            <h3>Google Cloud Project</h3>
+            <p>Connect using an existing service account or custom Google Cloud configuration.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  setupWizardContainer.classList.remove('hidden');
+  chatMessages.classList.add('hidden');
+  inputAreaContainer.classList.add('hidden');
+
+  document.getElementById('login-oauth').addEventListener('click', () => {
+    socket.send(JSON.stringify({ type: 'input', data: '1' }));
+  });
+  document.getElementById('login-cloud').addEventListener('click', () => {
+    socket.send(JSON.stringify({ type: 'input', data: '2' }));
+  });
+}
+
+// 2. Auth code entry
+function renderAuthCodeWizard(cleanText) {
+  // Extract long oauth URL
+  const urlRegex = /(https:\/\/accounts\.google\.com\/o\/oauth2\/auth\S+)/;
+  const match = cleanText.match(urlRegex);
+  const authUrl = match ? match[1] : '#';
+
+  setupWizardContainer.innerHTML = `
+    <div class="wizard-card">
+      ${drawWizardHeader('Authenticate Account', 'Please authorize Antigravity CLI to access your Google services.')}
+      <div class="wizard-content">
+        <p style="font-size:13.5px;color:var(--text-muted);text-align:center;">
+          Click the button below to sign in and copy the authorization code.
+        </p>
+        <a href="${authUrl}" target="_blank" rel="noopener" class="wizard-btn-submit" style="text-decoration:none;">
+          🌐 Open Authorization Link
+        </a>
+        <div class="wizard-input-wrapper" style="margin-top:16px;">
+          <label style="font-size:12.5px;color:var(--text-dim);font-weight:600;">Authorization Code</label>
+          <input type="text" class="wizard-input-field" id="wizard-auth-code" placeholder="Paste the code here..." autocomplete="off">
+        </div>
+        <button class="wizard-btn-submit" id="wizard-auth-submit" style="margin-top:8px;">
+          Verify & Continue
+        </button>
+      </div>
+    </div>
+  `;
+  setupWizardContainer.classList.remove('hidden');
+  chatMessages.classList.add('hidden');
+  inputAreaContainer.classList.add('hidden');
+
+  const inputField = document.getElementById('wizard-auth-code');
+  const submitBtn = document.getElementById('wizard-auth-submit');
+
+  const submitCode = () => {
+    const code = inputField.value.trim();
+    if (code !== '') {
+      socket.send(JSON.stringify({ type: 'input', data: code }));
+    }
+  };
+
+  submitBtn.addEventListener('click', submitCode);
+  inputField.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submitCode();
+  });
+}
+
+// 3. Theme selector
+function renderThemeWizard(cleanText) {
+  // Parse theme choices and active state
+  const lines = cleanText.split('\n');
+  const themes = [
+    'terminal', 'light', 'solarized light', 'colorblind-friendly light',
+    'dark', 'solarized dark', 'colorblind-friendly dark', 'tokyo night'
+  ];
+  
+  // Find which theme currently has the active highlight ">"
+  let activeThemeIdx = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    for (let t = 0; t < themes.length; t++) {
+      if (trimmed === `> ${themes[t]}` || trimmed === themes[t]) {
+        if (trimmed.startsWith('>')) {
+          activeThemeIdx = t;
+        }
+      }
+    }
+  }
+
+  // Predefined code preview snippets per theme to look stunning
+  const codePreviews = {
+    terminal: `<span style="color:#4e9a06;">> you: add a greeting function</span>\n\n<span style="color:#8ae234;">Here's the change:</span>\n3  import "fmt"\n4  \n5  <span style="color:#cc0000;">- func main() {</span>\n5  <span style="color:#4e9a06;">+ func greet(name string) {</span>\n6  <span style="color:#4e9a06;">+     fmt.Printf("Hello, %s!\\n", name)</span>\n7  }`,
+    light: `<span style="color:#008000;">> you: add a greeting function</span>\n\n<span style="color:#0000ff;">Here's the change:</span>\n3  import "fmt"\n4  \n5  <span style="color:#ff0000;">- func main() {</span>\n5  <span style="color:#008000;">+ func greet(name string) {</span>\n6  <span style="color:#008000;">+     fmt.Printf("Hello, %s!\\n", name)</span>\n7  }`,
+    dark: `<span style="color:#50fa7b;">> you: add a greeting function</span>\n\n<span style="color:#8be9fd;">Here's the change:</span>\n3  import "fmt"\n4  \n5  <span style="color:#ff5555;">- func main() {</span>\n5  <span style="color:#50fa7b;">+ func greet(name string) {</span>\n6  <span style="color:#50fa7b;">+     fmt.Printf("Hello, %s!\\n", name)</span>\n7  }`
+  };
+  const defaultPreview = codePreviews.dark;
+
+  let themesListHtml = '';
+  themes.forEach((theme, idx) => {
+    themesListHtml += `
+      <button class="theme-option-btn ${idx === activeThemeIdx ? 'active' : ''}" data-idx="${idx}">
+        ${theme}
+      </button>
+    `;
+  });
+
+  setupWizardContainer.innerHTML = `
+    <div class="wizard-card" style="max-width: 680px;">
+      ${drawWizardHeader('Console Theme', 'Choose your preferred TUI and layout visual presentation.')}
+      <div class="wizard-content">
+        <div class="theme-wizard-layout">
+          <div class="theme-options-list">
+            ${themesListHtml}
+          </div>
+          <div class="theme-preview-box">
+            ${codePreviews[themes[activeThemeIdx]] || defaultPreview}
+          </div>
+        </div>
+        <button class="wizard-btn-submit" id="theme-wizard-confirm" style="margin-top:12px;">
+          Confirm Theme
+        </button>
+      </div>
+    </div>
+  `;
+  setupWizardContainer.classList.remove('hidden');
+  chatMessages.classList.add('hidden');
+  inputAreaContainer.classList.add('hidden');
+
+  // Add click handlers on theme options
+  document.querySelectorAll('.theme-option-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const clickedIdx = parseInt(btn.getAttribute('data-idx'));
+      const diff = clickedIdx - activeThemeIdx;
+      
+      const commands = [];
+      if (diff > 0) {
+        for (let i = 0; i < diff; i++) commands.push('Down');
+      } else if (diff < 0) {
+        for (let i = 0; i < Math.abs(diff); i++) commands.push('Up');
+      }
+      
+      if (commands.length > 0) {
+        socket.send(JSON.stringify({
+          type: 'input',
+          data: commands,
+          sendEnter: false
+        }));
+      }
+    });
+  });
+
+  document.getElementById('theme-wizard-confirm').addEventListener('click', () => {
+    socket.send(JSON.stringify({ type: 'input', data: 'Enter', sendEnter: false }));
+  });
+}
+
+// 4. Terms of Service
+function renderTermsWizard(cleanText) {
+  setupWizardContainer.innerHTML = `
+    <div class="wizard-card">
+      ${drawWizardHeader('Terms of Service', 'Review the terms and data collection agreement.')}
+      <div class="wizard-content">
+        <div class="wizard-tos-box">
+          Terms of Service & Data Use\n\nAI coding agents are known to have certain security risks, including autonomous code execution, data exfiltration, prompt injection and supply chain risks. Ensure that you monitor and verify all actions taken by the agent.
+        </div>
+        <label class="tos-checkbox-label">
+          <input type="checkbox" id="tos-checkbox">
+          I agree to help improve Antigravity CLI by allowing Google to collect and use my interactions data.
+        </label>
+        <div class="wizard-button-group">
+          <button class="wizard-btn-secondary" id="tos-wizard-prev">Previous</button>
+          <button class="wizard-btn-primary" id="tos-wizard-done">Accept & Continue</button>
+        </div>
+      </div>
+    </div>
+  `;
+  setupWizardContainer.classList.remove('hidden');
+  chatMessages.classList.add('hidden');
+  inputAreaContainer.classList.add('hidden');
+
+  const checkbox = document.getElementById('tos-checkbox');
+  const doneBtn = document.getElementById('tos-wizard-done');
+  const prevBtn = document.getElementById('tos-wizard-prev');
+
+  const isChecked = cleanText.includes('[x] Yes');
+  checkbox.checked = isChecked;
+
+  checkbox.addEventListener('change', () => {
+    socket.send(JSON.stringify({ type: 'input', data: 'Space', sendEnter: false }));
+  });
+
+  prevBtn.addEventListener('click', () => {
+    socket.send(JSON.stringify({ type: 'input', data: 'Left', sendEnter: false }));
+  });
+
+  doneBtn.addEventListener('click', () => {
+    if (!checkbox.checked) {
+      alert('You must accept the terms to continue.');
+      return;
+    }
+    socket.send(JSON.stringify({ type: 'input', data: 'Enter', sendEnter: false }));
+  });
+}
+
+// 5. Workspace trust dialog
+function renderTrustFolderWizard(cleanText) {
+  setupWizardContainer.innerHTML = `
+    <div class="wizard-card">
+      ${drawWizardHeader('Trust Workspace Directory', 'Permission required to perform file actions.')}
+      <div class="wizard-content">
+        <p style="font-size:14.5px;color:var(--text-muted);text-align:center;">
+          Do you trust the contents of the folder <code style="font-size:15px;color:var(--accent);">/config</code>?
+        </p>
+        <p style="font-size:13px;color:var(--text-dim);line-height:1.5;text-align:center;padding:0 12px;">
+          Antigravity Console needs full read, edit, and execution permissions in this workspace folder to run terminal tasks.
+        </p>
+        <div class="wizard-button-group" style="margin-top:12px;">
+          <button class="wizard-btn-secondary" id="trust-deny">No, Exit</button>
+          <button class="wizard-btn-primary" id="trust-confirm">Yes, I trust this folder</button>
+        </div>
+      </div>
+    </div>
+  `;
+  setupWizardContainer.classList.remove('hidden');
+  chatMessages.classList.add('hidden');
+  inputAreaContainer.classList.add('hidden');
+
+  document.getElementById('trust-confirm').addEventListener('click', () => {
+    socket.send(JSON.stringify({ type: 'input', data: 'Enter', sendEnter: false }));
+  });
+  document.getElementById('trust-deny').addEventListener('click', () => {
+    socket.send(JSON.stringify({ type: 'input', data: 'Down', sendEnter: false }));
+    setTimeout(() => {
+      socket.send(JSON.stringify({ type: 'input', data: 'Enter', sendEnter: false }));
+    }, 100);
+  });
+}
+
+// ─── Markdown Formatter ────────────────────────────────────────────────────
 function formatMarkdown(text) {
   let html = text;
 
-  // Escape HTML characters to prevent XSS
   html = html
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-  // Convert choice menu options into interactive buttons
-  // Matches lines like: "1. Yes" or "> 1. Yes" or "  2. No"
   html = html.replace(/^\s*(?:&gt;\s*)?(\d+)\.\s+(.+)$/gm, '<button class="choice-btn" data-choice="$1">$1. $2</button>');
 
-  // Code blocks: ```code```
   html = html.replace(/```([\s\S]*?)```/g, (match, code) => {
     return `<pre><code>${code.trim()}</code></pre>`;
   });
 
-  // Inline code: `code`
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-  // Bold text: **text**
   html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 
-  // Bullet lists: - item or * item
   html = html.replace(/^\s*[-*]\s+(.+)$/gm, '<li>$1</li>');
   html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
 
-  // Convert URLs to links (after HTML escaping, so we work with escaped entities)
   const urlPattern = /(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/ig;
   html = html.replace(urlPattern, '<a href="$1" target="_blank" rel="noopener">$1</a>');
 
   return html;
 }
 
-// ─── Screen Capture Parser ─────────────────────────────────────────────────
-// Parses the raw tmux screen capture into chat bubbles
-
-function renderScreenCapture(text, isPrompt) {
-  if (!text || text.trim() === '') return;
-
+// ─── Chat Messages Rendering ────────────────────────────────────────────────
+function renderChatMessages(text, isPrompt) {
   const lines = text.split('\n');
   let currentBubbleType = null;
   let currentBubbleText = [];
@@ -138,42 +578,26 @@ function renderScreenCapture(text, isPrompt) {
     parsedBubbles.push({ type, text: cleanBubbleText });
   };
 
-  // Patterns to identify user input lines in terminal output
   const userPromptRegex = /^(\s*agy\s*>|>\s*|\$\s*|root@.*:~#\s*)/;
 
-  // Filter rules to remove terminal decorations, status bars, and banners
   const isBannedLine = (line) => {
     const trimmed = line.trim();
     if (trimmed === '') return true;
-    
-    // ASCII logo/banner characters
     if (/[▄▀█]/.test(trimmed)) return true;
-
-    // Antigravity banner lines (version-independent)
     if (/Antigravity\s+CLI/i.test(trimmed)) return true;
-    if (/@google/i.test(trimmed)) return true;
-    
-    // Path-only lines like "/config"
     if (/^\/\w+$/.test(trimmed)) return true;
-    
-    // Divider lines
     if (/^[─\-_=]{3,}$/.test(trimmed)) return true;
     if (trimmed.startsWith('────')) return true;
-
-    // TUI status bar / shortcut hints (version-independent patterns)
     if (/\?\s*for shortcuts/i.test(trimmed)) return true;
     if (/Gemini\s+\d/i.test(trimmed)) return true;
     if (/ctrl\+[a-z]\s+to\s+/i.test(trimmed)) return true;
-
     return false;
   };
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    
     if (isBannedLine(line)) continue;
 
-    // Identify user lines, but exclude interactive menu items like '> 1. Yes'
     const isUserLine = userPromptRegex.test(line) && !/^\s*>\s*\d+\./.test(line);
 
     if (isUserLine) {
@@ -192,25 +616,21 @@ function renderScreenCapture(text, isPrompt) {
         currentBubbleText = [];
       }
       currentBubbleType = 'agent';
-      
-      // Clean up tool call bullet points
       let processedLine = line;
       if (processedLine.trim().startsWith('●')) {
         processedLine = processedLine.replace('●', '⚙️ Tool call:');
       }
-      
       currentBubbleText.push(processedLine);
     }
   }
 
-  // Flush remaining
   if (currentBubbleType && currentBubbleText.length > 0) {
     addParsedBubble(currentBubbleType, currentBubbleText);
   }
 
-  // ─── Stable DOM Appending / Updating Engine ────────────────────────────────
+  // DOM Reconciliation
   const existingBubbles = Array.from(chatMessages.querySelectorAll('.message:not(.system):not(.pending)'));
-  let matchOffset = -1; // Index in parsedBubbles that matches the last existingBubble
+  let matchOffset = -1;
 
   if (existingBubbles.length > 0) {
     const lastExisting = existingBubbles[existingBubbles.length - 1];
@@ -218,7 +638,6 @@ function renderScreenCapture(text, isPrompt) {
     const lastRaw = lastContent.getAttribute('data-raw') || '';
     const lastType = lastExisting.classList.contains('user') ? 'user' : 'agent';
 
-    // Search backward in parsedBubbles for a matching bubble
     for (let i = parsedBubbles.length - 1; i >= 0; i--) {
       const pb = parsedBubbles[i];
       if (pb.type === lastType) {
@@ -235,7 +654,6 @@ function renderScreenCapture(text, isPrompt) {
   }
 
   if (matchOffset !== -1) {
-    // 1. Update the matching bubble (it might have new streamed content)
     const matchedExisting = existingBubbles[existingBubbles.length - 1];
     const matchedParsed = parsedBubbles[matchOffset];
     const contentDiv = matchedExisting.querySelector('.message-content');
@@ -250,268 +668,161 @@ function renderScreenCapture(text, isPrompt) {
       }
     }
 
-    // 2. Append/promote any new bubbles after the matched index
     for (let i = matchOffset + 1; i < parsedBubbles.length; i++) {
-      const newBubble = parsedBubbles[i];
-      appendOrPromoteBubble(newBubble);
+      appendNewBubble(parsedBubbles[i].type, parsedBubbles[i].text);
     }
   } else {
-    // If no match found, clean and insert all parsed bubbles (initial sync)
-    existingBubbles.forEach(el => el.remove());
-    parsedBubbles.forEach(newBubble => {
-      appendOrPromoteBubble(newBubble);
+    chatMessages.innerHTML = '';
+    parsedBubbles.forEach(pb => {
+      appendNewBubble(pb.type, pb.text);
     });
   }
 
-  // Helper to append a new bubble or promote a pending one
-  function appendOrPromoteBubble(newBubble) {
-    if (newBubble.type === 'user') {
-      const pendingEl = chatMessages.querySelector('.message.user.pending');
-      if (pendingEl) {
-        const contentDiv = pendingEl.querySelector('.message-content');
-        const raw = contentDiv.getAttribute('data-raw') || '';
-        if (raw.trim() === newBubble.text.trim()) {
-          pendingEl.classList.remove('pending');
-          // Move before any other pending messages or to the end
-          const firstPending = chatMessages.querySelector('.message.pending');
-          if (firstPending) {
-            chatMessages.insertBefore(pendingEl, firstPending);
-          } else {
-            chatMessages.appendChild(pendingEl);
-          }
-          return;
-        }
-      }
-    }
+  highlightedChoiceIdx = -1;
 
-    // Create and append new bubble
-    const bubble = document.createElement('div');
-    bubble.className = `message ${newBubble.type}`;
-    const content = document.createElement('div');
-    content.className = 'message-content';
-    content.setAttribute('data-raw', newBubble.text);
-    if (newBubble.type === 'user') {
-      content.innerText = newBubble.text;
-    } else {
-      content.innerHTML = formatMarkdown(newBubble.text);
-    }
-    bubble.appendChild(content);
-
-    const firstPending = chatMessages.querySelector('.message.pending');
-    if (firstPending) {
-      chatMessages.insertBefore(bubble, firstPending);
-    } else {
-      chatMessages.appendChild(bubble);
-    }
-  }
-
-  // Prompt helper overlay
   if (isPrompt) {
-    const nonBlankLines = lines.filter(l => l.trim() !== '');
-    const lastLine = nonBlankLines[nonBlankLines.length - 1] || 'Confirm action:';
-    showPromptHelper(lastLine);
+    promptHelperText.innerText = 'Approval required:';
+    promptHelper.classList.remove('hidden');
   } else {
     promptHelper.classList.add('hidden');
   }
 
-  // Auto scroll to bottom
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// ─── System Messages ───────────────────────────────────────────────────────
+function appendNewBubble(type, text) {
+  const container = document.createElement('div');
+  container.className = `message ${type}`;
 
-function addSystemMessage(text) {
-  // Limit system messages to prevent DOM bloat during long sessions
-  const systemMessages = chatMessages.querySelectorAll('.message.system');
-  if (systemMessages.length > 10) {
-    // Keep the first (welcome) and remove oldest non-welcome ones
-    for (let i = 1; i < systemMessages.length - 5; i++) {
-      systemMessages[i].remove();
-    }
-  }
-
-  const msg = document.createElement('div');
-  msg.className = 'message system';
   const content = document.createElement('div');
   content.className = 'message-content';
-  content.innerText = text;
-  msg.appendChild(content);
-  chatMessages.appendChild(msg);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-
-// ─── Prompt Helper ─────────────────────────────────────────────────────────
-
-function showPromptHelper(promptText) {
-  const cleanPrompt = promptText.replace(/\[y\/N\]/gi, '').trim();
-  promptHelperText.innerText = cleanPrompt || 'Confirm action:';
-  promptHelper.classList.remove('hidden');
-}
-
-// ─── Send Input ────────────────────────────────────────────────────────────
-
-function sendInput(text) {
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
-    addSystemMessage('⚠️ Cannot send: No server connection.');
-    return;
-  }
-
-  // Create user bubble immediately with "pending" state for instant responsive feel
-  const userMsg = document.createElement('div');
-  userMsg.className = 'message user pending';
-  const content = document.createElement('div');
-  content.className = 'message-content';
-  content.innerText = text;
   content.setAttribute('data-raw', text);
-  userMsg.appendChild(content);
-  chatMessages.appendChild(userMsg);
 
-  // Auto clean up pending messages after 8 seconds (safety timeout)
-  setTimeout(() => {
-    if (userMsg.classList.contains('pending')) {
-      userMsg.remove();
-    }
-  }, 8000);
+  if (type === 'user') {
+    content.innerText = text;
+    const pendings = chatMessages.querySelectorAll('.message.user.pending');
+    pendings.forEach(p => {
+      const pRaw = p.querySelector('.message-content').getAttribute('data-raw');
+      if (pRaw === text) p.remove();
+    });
+  } else {
+    content.innerHTML = formatMarkdown(text);
+  }
 
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-
-  // Send payload to server
-  socket.send(JSON.stringify({
-    type: 'input',
-    data: text
-  }));
+  container.appendChild(content);
+  chatMessages.appendChild(container);
 }
 
-// ─── Input Handling ────────────────────────────────────────────────────────
+// ─── Input Form Submission ────────────────────────────────────────────────
+if (inputForm) {
+  inputForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const value = userInput.value.trim();
+    if (value === '') return;
 
-// Auto-adjust height of textarea while typing
-userInput.addEventListener('input', () => {
-  userInput.style.height = 'auto';
-  userInput.style.height = (userInput.scrollHeight - 4) + 'px';
-});
+    socket.send(JSON.stringify({ type: 'input', data: value }));
 
-// Handle form submission (Enter or Send Button)
-inputForm.addEventListener('submit', (e) => {
-  e.preventDefault();
-  const text = userInput.value.trim();
-  if (text === '') return;
+    const pendingMsg = document.createElement('div');
+    pendingMsg.className = 'message user pending';
+    
+    const content = document.createElement('div');
+    content.className = 'message-content';
+    content.setAttribute('data-raw', value);
+    content.innerText = value;
+    
+    pendingMsg.appendChild(content);
+    chatMessages.appendChild(pendingMsg);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
 
-  sendInput(text);
+    userInput.value = '';
+    userInput.rows = 1;
+  });
+}
 
-  userInput.value = '';
-  userInput.style.height = 'auto';
-  clearChoiceHighlighting();
-});
+// Submit via Enter key
+if (userInput) {
+  userInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      inputForm.requestSubmit();
+    }
+  });
 
-// Click delegation on multiple choice buttons
-chatMessages.addEventListener('click', (e) => {
-  const choiceBtn = e.target.closest('.choice-btn');
-  if (choiceBtn) {
-    const choice = choiceBtn.getAttribute('data-choice');
-    sendInput(choice);
+  userInput.addEventListener('input', () => {
+    userInput.rows = 1;
+    const lines = Math.min(6, Math.floor(userInput.scrollHeight / 24));
+    userInput.rows = lines || 1;
+  });
+}
+
+// ─── Keyboard Nav in Interactive Options ────────────────────────────────────
+function getChoiceButtons() {
+  const lastAgentMessage = chatMessages.querySelector('.message.agent:last-of-type');
+  if (!lastAgentMessage) return [];
+  return Array.from(lastAgentMessage.querySelectorAll('.choice-btn'));
+}
+
+function clearChoiceHighlighting() {
+  getChoiceButtons().forEach(btn => btn.classList.remove('highlighted'));
+  highlightedChoiceIdx = -1;
+}
+
+window.addEventListener('keydown', (e) => {
+  const choices = getChoiceButtons();
+  if (choices.length === 0) return;
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    highlightedChoiceIdx = (highlightedChoiceIdx + 1) % choices.length;
+    choices.forEach((btn, idx) => {
+      btn.classList.toggle('highlighted', idx === highlightedChoiceIdx);
+    });
+  } 
+  
+  else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    highlightedChoiceIdx = (highlightedChoiceIdx - 1 + choices.length) % choices.length;
+    choices.forEach((btn, idx) => {
+      btn.classList.toggle('highlighted', idx === highlightedChoiceIdx);
+    });
+  } 
+  
+  else if (e.key === 'Enter' && highlightedChoiceIdx !== -1) {
+    e.preventDefault();
+    choices[highlightedChoiceIdx].click();
     clearChoiceHighlighting();
   }
 });
 
-// Submit on Enter key (without Shift) and handle keyboard navigation for choices
-userInput.addEventListener('keydown', (e) => {
-  const choiceButtons = getChoiceButtons();
-
-  if (choiceButtons.length > 0) {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      highlightedChoiceIdx = (highlightedChoiceIdx + 1) % choiceButtons.length;
-      choiceButtons.forEach((btn, idx) => {
-        if (idx === highlightedChoiceIdx) {
-          btn.classList.add('highlighted');
-          btn.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        } else {
-          btn.classList.remove('highlighted');
-        }
-      });
-      return;
-    }
-
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      highlightedChoiceIdx = (highlightedChoiceIdx - 1 + choiceButtons.length) % choiceButtons.length;
-      choiceButtons.forEach((btn, idx) => {
-        if (idx === highlightedChoiceIdx) {
-          btn.classList.add('highlighted');
-          btn.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        } else {
-          btn.classList.remove('highlighted');
-        }
-      });
-      return;
-    }
-
-    if (e.key === 'Enter' && !e.shiftKey && highlightedChoiceIdx !== -1) {
-      e.preventDefault();
-      choiceButtons[highlightedChoiceIdx].click();
-      clearChoiceHighlighting();
-      return;
-    }
-  }
-
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    inputForm.requestSubmit();
+// Click delegation on choices buttons
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.classList.contains('choice-btn')) {
+    const choiceNum = e.target.getAttribute('data-choice');
+    socket.send(JSON.stringify({ type: 'input', data: choiceNum }));
   }
 });
 
-// Prompt helper button handlers
-btnApprove.addEventListener('click', () => {
-  sendInput('y');
-  promptHelper.classList.add('hidden');
-});
-
-btnDeny.addEventListener('click', () => {
-  sendInput('n');
-  promptHelper.classList.add('hidden');
-});
-
-// ─── View Toggle (Chat ↔ Raw Terminal) ─────────────────────────────────────
-
-const toggleViewBtn = document.getElementById('toggle-view');
-const chatContainer = document.getElementById('chat-container');
-const terminalFrame = document.getElementById('terminal-frame');
-
-toggleViewBtn.addEventListener('click', () => {
-  const isTerminalHidden = terminalFrame.classList.contains('hidden');
-
-  if (isTerminalHidden) {
-    const base = window.location.pathname.replace(/\/$/, '');
-    terminalFrame.src = `${base}/terminal/`;
-    
-    terminalFrame.classList.remove('hidden');
-    chatContainer.classList.add('hidden');
-    toggleViewBtn.innerText = 'Show Chat';
-    toggleViewBtn.classList.add('active');
-  } else {
-    terminalFrame.classList.add('hidden');
-    terminalFrame.src = ''; // Unload iframe to save resources
-    chatContainer.classList.remove('hidden');
-    toggleViewBtn.innerText = 'Show Terminal';
-    toggleViewBtn.classList.remove('active');
-  }
-});
-
-// ─── Version Display ───────────────────────────────────────────────────────
-
-async function fetchVersion() {
-  try {
-    const response = await fetch('./api/version');
-    const data = await response.json();
-    if (data.version) {
-      document.getElementById('app-version').innerText = `v${data.version}`;
-    }
-  } catch (err) {
-    console.error('[Frontend] Failed to fetch version:', err);
-  }
+// Inline helper bar buttons
+if (btnApprove) {
+  btnApprove.addEventListener('click', () => {
+    socket.send(JSON.stringify({ type: 'input', data: 'y' }));
+  });
+}
+if (btnDeny) {
+  btnDeny.addEventListener('click', () => {
+    socket.send(JSON.stringify({ type: 'input', data: 'n' }));
+  });
 }
 
-// ─── Initialize ────────────────────────────────────────────────────────────
+// ─── HTML Utility Helpers ───────────────────────────────────────────────────
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
-fetchVersion();
+// Initialize on load
 connect();

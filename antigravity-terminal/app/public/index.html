@@ -15,6 +15,11 @@
     <!-- Header -->
     <header class="app-header">
       <div class="logo-area">
+        <button class="btn-sidebar-toggle" id="toggle-sidebar" aria-label="Toggle Sidebar">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M4 6H20M4 12H20M4 18H20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </button>
         <svg class="logo-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M12 2L2 22H22L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
           <path d="M12 8L6 20H18L12 8Z" fill="currentColor" opacity="0.3"/>
@@ -33,48 +38,69 @@
       </div>
     </header>
 
-    <!-- Main Workspace Layout -->
-    <div class="workspace">
-      <!-- Terminal Iframe (hidden by default) -->
-      <iframe class="terminal-frame hidden" id="terminal-frame" src=""></iframe>
+    <!-- Main Workspace Layout with Sidebar -->
+    <div class="app-body">
+      <!-- Sidebar -->
+      <aside class="sidebar" id="sidebar">
+        <button class="btn-new-chat" id="new-chat-btn">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          New Chat
+        </button>
+        <div class="sessions-list" id="sessions-list">
+          <!-- Dynamic session items inserted here -->
+        </div>
+      </aside>
 
-      <!-- Chat Container -->
-      <main class="chat-container" id="chat-container">
-        <div class="chat-messages" id="chat-messages">
-          <!-- Welcome message -->
-          <div class="message system">
-            <div class="message-content">
-              <p>🤖 Welcome to Antigravity Console. Initializing CLI agent...</p>
+      <!-- Central Content View -->
+      <div class="workspace">
+        <!-- Terminal Iframe (hidden by default) -->
+        <iframe class="terminal-frame hidden" id="terminal-frame" src=""></iframe>
+
+        <!-- Chat Container -->
+        <main class="chat-container" id="chat-container">
+          <!-- Setup Wizard View (rendered dynamically when setup is active) -->
+          <div class="setup-wizard-container hidden" id="setup-wizard-container">
+            <!-- Dynamically populated wizard cards -->
+          </div>
+
+          <!-- Chat messages area -->
+          <div class="chat-messages" id="chat-messages">
+            <div class="message system">
+              <div class="message-content">
+                <p>🤖 Welcome to Antigravity Console. Initializing CLI agent...</p>
+              </div>
             </div>
           </div>
-        </div>
 
-        <!-- Inline Prompt Helper (e.g. for [y/N] choices) -->
-        <div class="prompt-helper-panel hidden" id="prompt-helper">
-          <span class="prompt-text" id="prompt-helper-text">Permission required:</span>
-          <div class="prompt-actions">
-            <button class="btn btn-approve" id="btn-approve" aria-label="Approve action">Yes (y)</button>
-            <button class="btn btn-deny" id="btn-deny" aria-label="Deny action">No (n)</button>
+          <!-- Inline Prompt Helper (e.g. for [y/N] choices in basic prompts) -->
+          <div class="prompt-helper-panel hidden" id="prompt-helper">
+            <span class="prompt-text" id="prompt-helper-text">Permission required:</span>
+            <div class="prompt-actions">
+              <button class="btn btn-approve" id="btn-approve" aria-label="Approve action">Yes (y)</button>
+              <button class="btn btn-deny" id="btn-deny" aria-label="Deny action">No (n)</button>
+            </div>
           </div>
-        </div>
 
-        <!-- Input Area -->
-        <footer class="input-area">
-          <form class="input-form" id="input-form" autocomplete="off">
-            <label for="user-input" class="sr-only">Message input</label>
-            <textarea 
-              id="user-input" 
-              placeholder="Ask the agent something or give it a task... (Enter to send, Shift+Enter for new line)" 
-              rows="1"
-            ></textarea>
-            <button type="submit" class="send-btn" aria-label="Send message" id="send-button">
-              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
-          </form>
-        </footer>
-      </main>
+          <!-- Input Area -->
+          <footer class="input-area" id="input-area-container">
+            <form class="input-form" id="input-form" autocomplete="off">
+              <label for="user-input" class="sr-only">Message input</label>
+              <textarea 
+                id="user-input" 
+                placeholder="Ask the agent something or give it a task... (Enter to send, Shift+Enter for new line)" 
+                rows="1"
+              ></textarea>
+              <button type="submit" class="send-btn" aria-label="Send message" id="send-button">
+                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+            </form>
+          </footer>
+        </main>
+      </div>
     </div>
   </div>
 

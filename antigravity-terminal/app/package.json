@@ -1,6 +1,6 @@
 {
   "name": "antigravity-web-gui",
-  "version": "2.1.7",
+  "version": "2.1.8",
   "description": "Modern Web GUI wrapper for Antigravity CLI",
   "main": "server.js",
   "type": "module",
