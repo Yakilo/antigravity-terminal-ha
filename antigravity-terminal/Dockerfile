@@ -1,21 +1,7 @@
-# Global ARGs (available in FROM instructions)
+# Stage 1: Main add-on image (no intermediate build stages needed)
 ARG BUILD_FROM
 ARG BUILD_ARCH
 
-## Stage 1: Build hab CLI from source (pinned release)
-## hab = Home Assistant Build CLI - used for config access
-FROM golang:1.24-trixie AS hab-builder
-
-ARG BUILD_ARCH
-ARG HAB_VERSION=1.6.4
-RUN git clone --depth 1 --branch "${HAB_VERSION}" https://github.com/balloob/home-assistant-build-cli.git /src
-WORKDIR /src
-
-# Cross-compile for the target architecture
-RUN GOARCH=$([ "$BUILD_ARCH" = "aarch64" ] && echo "arm64" || echo "amd64") \
-    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /hab .
-
-## Stage 2: Main add-on image
 FROM $BUILD_FROM
 
 # Build arguments
@@ -29,13 +15,13 @@ ENV NODE_ENV=production \
     npm_config_fund=false
 
 # Install system dependencies in a single layer
-# - nodejs/npm: Required for Antigravity CLI
+# - nodejs/npm: Required for Web Console GUI
 # - git: Required by Antigravity CLI for version control operations
 # - jq: JSON processing for helper scripts
-# - curl/ca-certificates: For downloading ttyd and binaries
+# - curl/ca-certificates: For downloading binaries
 # - procps: Provides pgrep for health check
-# - tmux: Session persistence to prevent multiple Antigravity CLI instances
-# - nano, vim, tree: Useful terminal tools
+# - tmux: Session persistence to prevent multiple CLI instances
+# - nano, vim, tree: Useful terminal tools for the raw terminal mode
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -47,12 +33,11 @@ RUN apt-get update \
         procps \
         python3 \
         python3-venv \
+        rsync \
         tmux \
         nano \
         vim \
         tree \
-        xclip \
-        wl-clipboard \
     && rm -rf /var/lib/apt/lists/*
 
 # Install GitHub CLI (gh) for repository operations
@@ -66,7 +51,6 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && rm -rf /var/lib/apt/lists/*
 
 # Install ttyd (web-based terminal) for the correct architecture
-ARG TTYD_VERSION=1.7.7
 RUN ARCH=$([ "$BUILD_ARCH" = "aarch64" ] && echo "aarch64" || echo "x86_64") \
     && curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ARCH}" \
         -o /usr/local/bin/ttyd \
@@ -79,9 +63,6 @@ RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \
 
 # Add ~/.local/bin to global PATH
 ENV PATH="/root/.local/bin:${PATH}"
-
-# Copy the hab binary from builder stage
-COPY --from=hab-builder /hab /usr/local/bin/hab
 
 # Copy Web GUI Application package configuration and install dependencies
 # Doing this first allows Docker to cache the npm install layer
@@ -98,13 +79,17 @@ COPY rootfs /
 RUN chmod +x /usr/bin/antigravity-startup \
     && chmod +x /etc/cont-init.d/*.sh 2>/dev/null || true
 
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD curl -sf http://localhost:8099/api/version || exit 1
+
 # Expose the Web Console port
 EXPOSE 8099
 
 # Build labels
 LABEL \
-    io.hass.name="Antigravity Terminal" \
-    io.hass.description="Terminal interface for Google DeepMind's Antigravity CLI with HA MCP integration" \
+    io.hass.name="Antigravity Console" \
+    io.hass.description="Web Console for Google DeepMind's Antigravity CLI with HA MCP integration" \
     io.hass.arch="${BUILD_ARCH}" \
     io.hass.type="addon" \
     io.hass.version="${BUILD_VERSION}"

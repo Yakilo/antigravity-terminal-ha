@@ -1,7 +1,7 @@
-// WebSocket management
+// ─── WebSocket Management ──────────────────────────────────────────────────
 let socket = null;
-let currentAgentMessageElement = null;
-let isStreaming = false;
+let reconnectDelay = 1000; // Start at 1s, exponential backoff
+const MAX_RECONNECT_DELAY = 30000; // Cap at 30s
 
 const chatMessages = document.getElementById('chat-messages');
 const inputForm = document.getElementById('input-form');
@@ -12,11 +12,11 @@ const promptHelperText = document.getElementById('prompt-helper-text');
 const btnApprove = document.getElementById('btn-approve');
 const btnDeny = document.getElementById('btn-deny');
 
-// Connect to WebSocket server
+// ─── WebSocket Connection with Exponential Backoff ─────────────────────────
+
 function connect() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   // HA Ingress serves the addon under a subpath (/api/hassio_ingress/TOKEN/)
-  // We must ensure the WebSocket goes through this token path
   const path = window.location.pathname.replace(/\/$/, '');
   const wsUrl = `${protocol}//${window.location.host}${path}/ws`;
 
@@ -24,16 +24,19 @@ function connect() {
 
   socket.onopen = () => {
     console.log('[WebSocket] Connected');
+    reconnectDelay = 1000; // Reset backoff on successful connection
     setConnectionState(true);
-    addSystemMessage('🔌 Verbindung zur Antigravity CLI hergestellt.');
+    addSystemMessage('🔌 Connected to Antigravity CLI.');
   };
 
   socket.onclose = () => {
-    console.log('[WebSocket] Disconnected. Reconnecting in 3s...');
+    console.log(`[WebSocket] Disconnected. Reconnecting in ${reconnectDelay / 1000}s...`);
     setConnectionState(false);
-    addSystemMessage('❌ Verbindung getrennt. Reconnect wird versucht...');
+    addSystemMessage(`❌ Connection lost. Retrying in ${Math.round(reconnectDelay / 1000)}s...`);
     promptHelper.classList.add('hidden');
-    setTimeout(connect, 3000);
+    setTimeout(connect, reconnectDelay);
+    // Exponential backoff with jitter
+    reconnectDelay = Math.min(reconnectDelay * 1.5 + Math.random() * 500, MAX_RECONNECT_DELAY);
   };
 
   socket.onerror = (err) => {
@@ -44,11 +47,8 @@ function connect() {
   socket.onmessage = (event) => {
     try {
       const message = JSON.parse(event.data);
-
       if (message.type === 'output') {
         renderScreenCapture(message.clean, message.isPrompt);
-      } else if (message.type === 'error') {
-        renderScreenCapture(message.clean, false);
       }
     } catch (err) {
       console.error('[WebSocket] Error parsing server message:', err);
@@ -56,22 +56,24 @@ function connect() {
   };
 }
 
-// Update connection badge UI
+// ─── Connection Status UI ──────────────────────────────────────────────────
+
 function setConnectionState(connected) {
   if (connected) {
     connectionStatus.className = 'status-indicator connected';
-    connectionStatus.querySelector('.status-label').innerText = 'Verbunden';
+    connectionStatus.querySelector('.status-label').innerText = 'Connected';
   } else {
     connectionStatus.className = 'status-indicator disconnected';
-    connectionStatus.querySelector('.status-label').innerText = 'Getrennt';
+    connectionStatus.querySelector('.status-label').innerText = 'Disconnected';
   }
 }
 
-// Simple markdown formatter
+// ─── Markdown Formatter ────────────────────────────────────────────────────
+
 function formatMarkdown(text) {
   let html = text;
 
-  // Escape HTML characters to prevent XSS (except links/codes we generate)
+  // Escape HTML characters to prevent XSS
   html = html
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -92,19 +94,21 @@ function formatMarkdown(text) {
   html = html.replace(/^\s*[-*]\s+(.+)$/gm, '<li>$1</li>');
   html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
 
-  // Convert URLs to links (Linkify)
+  // Convert URLs to links (after HTML escaping, so we work with escaped entities)
   const urlPattern = /(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/ig;
-  html = html.replace(urlPattern, '<a href="$1" target="_blank">$1</a>');
+  html = html.replace(urlPattern, '<a href="$1" target="_blank" rel="noopener">$1</a>');
 
   return html;
 }
 
-// Parse the full tmux terminal screen capture into separate chat bubbles without flickering
+// ─── Screen Capture Parser ─────────────────────────────────────────────────
+// Parses the raw tmux screen capture into chat bubbles
+
 function renderScreenCapture(text, isPrompt) {
   if (!text || text.trim() === '') return;
 
   const lines = text.split('\n');
-  let currentBubbleType = null; // 'user' or 'agent'
+  let currentBubbleType = null;
   let currentBubbleText = [];
   const parsedBubbles = [];
 
@@ -115,7 +119,7 @@ function renderScreenCapture(text, isPrompt) {
     parsedBubbles.push({ type, text: cleanBubbleText });
   };
 
-  // Helper patterns to identify user inputs in terminal
+  // Patterns to identify user input lines in terminal output
   const userPromptRegex = /^(\s*agy\s*>|>\s*|\$\s*|root@.*:~#\s*)/;
 
   // Filter rules to remove terminal decorations, status bars, and banners
@@ -123,17 +127,24 @@ function renderScreenCapture(text, isPrompt) {
     const trimmed = line.trim();
     if (trimmed === '') return true;
     
-    // ASCII Logo / Banner lines
-    if (trimmed.includes('▄') || trimmed.includes('▀') || trimmed.includes('█')) return true;
-    if (trimmed.includes('Antigravity CLI') || trimmed.includes('@google') || trimmed.includes('/config')) return true;
+    // ASCII logo/banner characters
+    if (/[▄▀█]/.test(trimmed)) return true;
+
+    // Antigravity banner lines (version-independent)
+    if (/Antigravity\s+CLI/i.test(trimmed)) return true;
+    if (/@google/i.test(trimmed)) return true;
     
-    // Divider lines (long sequences of horizontal lines)
+    // Path-only lines like "/config"
+    if (/^\/\w+$/.test(trimmed)) return true;
+    
+    // Divider lines
     if (/^[─\-_=]{3,}$/.test(trimmed)) return true;
     if (trimmed.startsWith('────')) return true;
 
-    // TUI status bar / shortcut hints
-    if (trimmed.includes('? for shortcuts') || trimmed.includes('Gemini 3.5')) return true;
-    if (trimmed.includes('ctrl+o to expand')) return true;
+    // TUI status bar / shortcut hints (version-independent patterns)
+    if (/\?\s*for shortcuts/i.test(trimmed)) return true;
+    if (/Gemini\s+\d/i.test(trimmed)) return true;
+    if (/ctrl\+[a-z]\s+to\s+/i.test(trimmed)) return true;
 
     return false;
   };
@@ -141,51 +152,44 @@ function renderScreenCapture(text, isPrompt) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     
-    // Skip overhead lines
-    if (isBannedLine(line)) {
-      continue;
-    }
+    if (isBannedLine(line)) continue;
 
-    // Identify user lines, but exclude interactive menu lists like '> 1. Yes'
+    // Identify user lines, but exclude interactive menu items like '> 1. Yes'
     const isUserLine = userPromptRegex.test(line) && !/^\s*>\s*\d+\./.test(line);
 
     if (isUserLine) {
-      // Flush previous agent bubble if existed
       if (currentBubbleType === 'agent') {
         addParsedBubble('agent', currentBubbleText);
         currentBubbleText = [];
       }
       currentBubbleType = 'user';
-      // Strip the command prompt prefix from rendering
       const cleanCmd = line.replace(userPromptRegex, '').trim();
       if (cleanCmd !== '') {
         currentBubbleText.push(cleanCmd);
       }
     } else {
-      // Flush previous user bubble if existed
       if (currentBubbleType === 'user') {
         addParsedBubble('user', currentBubbleText);
         currentBubbleText = [];
       }
       currentBubbleType = 'agent';
       
-      // Clean up tool call bullet points (e.g. "● ListDir(...)") to make them look nice
+      // Clean up tool call bullet points
       let processedLine = line;
       if (processedLine.trim().startsWith('●')) {
-        processedLine = processedLine.replace('●', '⚙️ Werkzeug-Aufruf:');
+        processedLine = processedLine.replace('●', '⚙️ Tool call:');
       }
       
       currentBubbleText.push(processedLine);
     }
   }
 
-  // Flush remaining bubble
+  // Flush remaining
   if (currentBubbleType && currentBubbleText.length > 0) {
     addParsedBubble(currentBubbleType, currentBubbleText);
   }
 
-  // DOM Patching Engine (Flicker-Free)
-  // Retrieve existing messages (excluding the permanent system welcome message at index 0)
+  // ─── DOM Patching Engine (Flicker-Free) ──────────────────────────────────
   const existingBubbles = Array.from(chatMessages.querySelectorAll('.message:not(.system)'));
   const totalNew = parsedBubbles.length;
   const totalExisting = existingBubbles.length;
@@ -201,12 +205,10 @@ function renderScreenCapture(text, isPrompt) {
         const contentDiv = existingBubble.querySelector('.message-content');
         const oldRaw = contentDiv.getAttribute('data-raw');
 
-        // Type Sync
         if (!existingBubble.classList.contains(newBubble.type)) {
           existingBubble.className = `message ${newBubble.type}`;
         }
 
-        // Content Sync (patch only if changed)
         if (oldRaw !== newBubble.text) {
           contentDiv.setAttribute('data-raw', newBubble.text);
           if (newBubble.type === 'user') {
@@ -236,11 +238,10 @@ function renderScreenCapture(text, isPrompt) {
     }
   }
 
-  // Render the prompt choices buttons overlay
+  // Prompt helper overlay
   if (isPrompt) {
-    // Find the last line to show as prompt context
     const nonBlankLines = lines.filter(l => l.trim() !== '');
-    const lastLine = nonBlankLines[nonBlankLines.length - 1] || 'Aktion bestätigen:';
+    const lastLine = nonBlankLines[nonBlankLines.length - 1] || 'Confirm action:';
     showPromptHelper(lastLine);
   } else {
     promptHelper.classList.add('hidden');
@@ -250,8 +251,18 @@ function renderScreenCapture(text, isPrompt) {
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// Append a system notification
+// ─── System Messages ───────────────────────────────────────────────────────
+
 function addSystemMessage(text) {
+  // Limit system messages to prevent DOM bloat during long sessions
+  const systemMessages = chatMessages.querySelectorAll('.message.system');
+  if (systemMessages.length > 10) {
+    // Keep the first (welcome) and remove oldest non-welcome ones
+    for (let i = 1; i < systemMessages.length - 5; i++) {
+      systemMessages[i].remove();
+    }
+  }
+
   const msg = document.createElement('div');
   msg.className = 'message system';
   const content = document.createElement('div');
@@ -262,22 +273,23 @@ function addSystemMessage(text) {
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// Show the quick y/N confirmation panel
+// ─── Prompt Helper ─────────────────────────────────────────────────────────
+
 function showPromptHelper(promptText) {
-  // Strip trailing prompts if clean
   const cleanPrompt = promptText.replace(/\[y\/N\]/gi, '').trim();
-  promptHelperText.innerText = cleanPrompt || 'Aktion bestätigen:';
+  promptHelperText.innerText = cleanPrompt || 'Confirm action:';
   promptHelper.classList.remove('hidden');
 }
 
-// Send user input to server
+// ─── Send Input ────────────────────────────────────────────────────────────
+
 function sendInput(text) {
   if (!socket || socket.readyState !== WebSocket.OPEN) {
-    addSystemMessage('⚠️ Senden fehlgeschlagen: Keine Serververbindung.');
+    addSystemMessage('⚠️ Cannot send: No server connection.');
     return;
   }
 
-  // Create user bubble
+  // Create user bubble immediately for responsive feel
   const userMsg = document.createElement('div');
   userMsg.className = 'message user';
   const content = document.createElement('div');
@@ -285,19 +297,17 @@ function sendInput(text) {
   content.innerText = text;
   userMsg.appendChild(content);
   chatMessages.appendChild(userMsg);
-  
-  // Reset streaming state so next output creates a new bubble
-  isStreaming = false;
-  currentAgentMessageElement = null;
 
   chatMessages.scrollTop = chatMessages.scrollHeight;
 
-  // Send payload
+  // Send payload to server
   socket.send(JSON.stringify({
     type: 'input',
     data: text
   }));
 }
+
+// ─── Input Handling ────────────────────────────────────────────────────────
 
 // Auto-adjust height of textarea while typing
 userInput.addEventListener('input', () => {
@@ -325,7 +335,7 @@ userInput.addEventListener('keydown', (e) => {
   }
 });
 
-// Hook prompt helper buttons
+// Prompt helper button handlers
 btnApprove.addEventListener('click', () => {
   sendInput('y');
   promptHelper.classList.add('hidden');
@@ -336,7 +346,8 @@ btnDeny.addEventListener('click', () => {
   promptHelper.classList.add('hidden');
 });
 
-// View Toggle Logic (Chat vs. Raw Terminal)
+// ─── View Toggle (Chat ↔ Raw Terminal) ─────────────────────────────────────
+
 const toggleViewBtn = document.getElementById('toggle-view');
 const chatContainer = document.getElementById('chat-container');
 const terminalFrame = document.getElementById('terminal-frame');
@@ -345,27 +356,24 @@ toggleViewBtn.addEventListener('click', () => {
   const isTerminalHidden = terminalFrame.classList.contains('hidden');
 
   if (isTerminalHidden) {
-    // Show Terminal
-    // Ingress URL format is relative: "terminal/" (redirects to proxied ttyd port)
-    // We add a timestamp to force fresh loading and prevent old cache loops
     const base = window.location.pathname.replace(/\/$/, '');
     terminalFrame.src = `${base}/terminal/`;
     
     terminalFrame.classList.remove('hidden');
     chatContainer.classList.add('hidden');
-    toggleViewBtn.innerText = 'Chat anzeigen';
+    toggleViewBtn.innerText = 'Show Chat';
     toggleViewBtn.classList.add('active');
   } else {
-    // Show Chat Console
     terminalFrame.classList.add('hidden');
-    terminalFrame.src = ''; // Unload iframe to save memory/cpu
+    terminalFrame.src = ''; // Unload iframe to save resources
     chatContainer.classList.remove('hidden');
-    toggleViewBtn.innerText = 'Terminal anzeigen';
+    toggleViewBtn.innerText = 'Show Terminal';
     toggleViewBtn.classList.remove('active');
   }
 });
 
-// Fetch version from backend API
+// ─── Version Display ───────────────────────────────────────────────────────
+
 async function fetchVersion() {
   try {
     const response = await fetch('./api/version');
@@ -378,6 +386,7 @@ async function fetchVersion() {
   }
 }
 
-// Start connection & load version
+// ─── Initialize ────────────────────────────────────────────────────────────
+
 fetchVersion();
 connect();

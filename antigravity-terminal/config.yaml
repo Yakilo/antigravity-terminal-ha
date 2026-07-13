@@ -36,15 +36,15 @@ options:
   # Antigravity / Google AI API key
   google_api_key: ""
 
-  # Extra APK packages to install persistently
-  persistent_apk_packages: []
+  # Extra APT packages to install persistently (Debian packages)
+  persistent_apt_packages: []
 
   # Extra pip packages to install persistently
   persistent_pip_packages: []
 
 schema:
   google_api_key: str
-  persistent_apk_packages:
+  persistent_apt_packages:
     - str
   persistent_pip_packages:
     - str

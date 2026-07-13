@@ -1,20 +1,17 @@
 #!/usr/bin/with-contenv bashio
 # ==============================================================================
-# Antigravity Terminal - Main Startup Script
+# Antigravity Console - Main Startup Script
 # Configures environment and launches Web Console with embedded Raw Terminal
 # ==============================================================================
 
 set -euo pipefail
 
-bashio::log.info "Starting Antigravity Terminal..."
+bashio::log.info "Starting Antigravity Console..."
 
 # ────────────────────────────────────────────────────────────────────────────
 # Read configuration from HA addon options
 # ────────────────────────────────────────────────────────────────────────────
 GOOGLE_API_KEY=$(bashio::config 'google_api_key')
-FONT_SIZE=$(bashio::config 'font_size' '14')
-CURSOR_STYLE=$(bashio::config 'cursor_style' 'block')
-CURSOR_BLINK=$(bashio::config 'cursor_blink' 'false')
 
 # ────────────────────────────────────────────────────────────────────────────
 # Set Environment
@@ -24,15 +21,16 @@ export PATH="/root/.local/bin:/usr/local/bin:${PATH}"
 export GOOGLE_API_KEY="${GOOGLE_API_KEY}"
 export GEMINI_API_KEY="${GOOGLE_API_KEY}"   # fallback alias
 export HASS_HOST="http://supervisor/core"
+export TERM="xterm-256color"
 
 PERSISTENT_ROOT="/data/agy/root_dir"
 
 # ────────────────────────────────────────────────────────────────────────────
 # Restore root directory from persistent data if exists
 # ────────────────────────────────────────────────────────────────────────────
-if [ -d "${PERSISTENT_ROOT}" ]; then
+if [ -d "${PERSISTENT_ROOT}" ] && [ "$(ls -A "${PERSISTENT_ROOT}" 2>/dev/null)" ]; then
     bashio::log.info "Restoring persistent home directory..."
-    cp -rp ${PERSISTENT_ROOT}/. /root/ 2>/dev/null || true
+    rsync -a "${PERSISTENT_ROOT}/" /root/
 else
     bashio::log.info "Creating persistent home directory structure..."
     mkdir -p "${PERSISTENT_ROOT}"
@@ -44,14 +42,14 @@ mkdir -p /root/.local/share/agy
 mkdir -p /root/.cache/agy
 
 # Write default config ONLY if not present
-# We keep alt-screen as default for the Raw Terminal TUI experience
+# Using inline mode for optimal tmux screen-capture parsing in Web Console
 AGY_CONFIG_DIR="/root/.config/agy"
 if [ ! -f "${AGY_CONFIG_DIR}/config.json" ]; then
     bashio::log.info "Initializing default agy configuration..."
     cat > "${AGY_CONFIG_DIR}/config.json" <<EOF
 {
   "theme": "dark",
-  "renderingMode": "alt-screen",
+  "renderingMode": "inline",
   "setupComplete": true,
   "autoAcceptedTermsVersion": 1,
   "workspaceTrustConfirmed": true
@@ -60,35 +58,45 @@ EOF
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
-# Verify agy is installed, install or update to latest
+# Verify agy is available (installed at build time via Dockerfile)
 # ────────────────────────────────────────────────────────────────────────────
-if ! command -v agy &>/dev/null; then
-    bashio::log.warning "agy not found - installing now..."
-    curl -fsSL https://antigravity.google/cli/install.sh | bash \
-        && ln -sf /root/.local/bin/agy /usr/local/bin/agy \
-        || bashio::log.error "agy installation failed"
-else
-    # Force update the agy binary on start
-    bashio::log.info "Checking/Updating Antigravity CLI..."
-    curl -fsSL https://antigravity.google/cli/install.sh | bash &>/dev/null \
-        || bashio::log.warning "Could not update agy CLI"
-fi
-
 if command -v agy &>/dev/null; then
     bashio::log.info "agy ready: $(agy --version 2>/dev/null || echo 'version ok')"
 else
-    bashio::log.warning "agy unavailable - terminal will open as bash shell"
+    bashio::log.error "agy binary not found! The CLI should be pre-installed via Dockerfile."
+    bashio::log.warning "Terminal will open as a bash shell instead."
 fi
 
-# Save state to persistent storage immediately after installation/update
-cp -rp /root/. "${PERSISTENT_ROOT}/" 2>/dev/null || true
+# Save state to persistent storage immediately
+rsync -a --delete --exclude='.cache' --exclude='.tmux' /root/ "${PERSISTENT_ROOT}/"
 
 # ────────────────────────────────────────────────────────────────────────────
 # Install extra packages if configured
 # ────────────────────────────────────────────────────────────────────────────
+APT_PACKAGES_INSTALLED=false
+
+if bashio::config.exists 'persistent_apt_packages'; then
+    for pkg in $(bashio::config 'persistent_apt_packages[]' 2>/dev/null); do
+        if ! ${APT_PACKAGES_INSTALLED}; then
+            bashio::log.info "Updating package index..."
+            apt-get update -qq 2>/dev/null || true
+            APT_PACKAGES_INSTALLED=true
+        fi
+        bashio::log.info "Installing package: ${pkg}"
+        apt-get install -y --no-install-recommends "${pkg}" 2>/dev/null || \
+            bashio::log.warning "Failed to install: ${pkg}"
+    done
+fi
+
+# Legacy support: also check old 'persistent_apk_packages' key
 if bashio::config.exists 'persistent_apk_packages'; then
     for pkg in $(bashio::config 'persistent_apk_packages[]' 2>/dev/null); do
-        bashio::log.info "Installing package: ${pkg}"
+        if ! ${APT_PACKAGES_INSTALLED}; then
+            bashio::log.info "Updating package index..."
+            apt-get update -qq 2>/dev/null || true
+            APT_PACKAGES_INSTALLED=true
+        fi
+        bashio::log.info "Installing package (legacy apk key): ${pkg}"
         apt-get install -y --no-install-recommends "${pkg}" 2>/dev/null || \
             bashio::log.warning "Failed to install: ${pkg}"
     done
@@ -104,53 +112,40 @@ fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # Launch background syncer to periodically backup /root/ to /data/
+# Uses 60-second interval and excludes caches to reduce I/O
 # ────────────────────────────────────────────────────────────────────────────
 (
-    sleep 15
+    sleep 30
     while true; do
-        cp -rp /root/. "${PERSISTENT_ROOT}/" 2>/dev/null || true
-        # Clean up transient tmux files to prevent lock issues on reboot
-        rm -rf "${PERSISTENT_ROOT}/.tmux" 2>/dev/null || true
-        sleep 10
+        rsync -a --delete --exclude='.cache' --exclude='.tmux' /root/ "${PERSISTENT_ROOT}/"
+        sleep 60
     done
 ) &
 SYNCER_PID=$!
 
 # ────────────────────────────────────────────────────────────────────────────
 # Generate launcher script for ttyd (Raw Terminal)
-# Uses tmux for persistence
+# Uses tmux for persistence. Environment is inherited from parent process.
 # ────────────────────────────────────────────────────────────────────────────
-cat > /tmp/agy_launch.sh <<SHELL
+cat > /tmp/agy_launch.sh <<'SHELL'
 #!/bin/bash
-export PATH="/root/.local/bin:/usr/local/bin:\${PATH}"
-export GOOGLE_API_KEY="${GOOGLE_API_KEY}"
-export GEMINI_API_KEY="${GOOGLE_API_KEY}"
-export HASS_HOST="http://supervisor/core"
-export HOME="/root"
-export TERM=xterm-256color
+# Environment variables (GOOGLE_API_KEY, PATH, HOME, etc.)
+# are inherited from the parent process via ttyd.
 
 cd /config 2>/dev/null || cd /root
 SESSION="agy"
 
-if tmux has-session -t "\${SESSION}" 2>/dev/null; then
-    exec tmux attach-session -t "\${SESSION}"
+if tmux has-session -t "${SESSION}" 2>/dev/null; then
+    exec tmux attach-session -t "${SESSION}"
 else
-    exec tmux new-session -s "\${SESSION}" \
+    exec tmux new-session -s "${SESSION}" \
         bash -c '
-            export HOME="/root"
-            export PATH="/root/.local/bin:/usr/local/bin:$PATH"
-            export GOOGLE_API_KEY="'"${GOOGLE_API_KEY}"'"
-            export GEMINI_API_KEY="'"${GOOGLE_API_KEY}"'"
-            export HASS_HOST="http://supervisor/core"
-            export TERM=xterm-256color
-
             if command -v agy &>/dev/null; then
                 agy
             else
                 echo ""
-                echo "  ⚠️  agy not found. Installing..."
-                curl -fsSL https://antigravity.google/cli/install.sh | bash
-                agy
+                echo "  ⚠️  agy not found."
+                echo "  Please check the addon logs for installation errors."
             fi
             echo ""
             echo "  ─────────────────────────────────────────────"
@@ -163,25 +158,38 @@ SHELL
 chmod +x /tmp/agy_launch.sh
 
 # ────────────────────────────────────────────────────────────────────────────
-# Launch ttyd (Raw Terminal) on Port 8098 (bind to localhost)
+# Launch ttyd (Raw Terminal) on Port 8098 (bind to localhost only)
 # ────────────────────────────────────────────────────────────────────────────
 bashio::log.info "Launching ttyd backend on port 8098..."
 ttyd \
     --port 8098 \
     --interface 127.0.0.1 \
     --writable \
-    --client-option "fontSize=${FONT_SIZE}" \
-    --client-option "cursorStyle=${CURSOR_STYLE}" \
-    --client-option "cursorBlink=${CURSOR_BLINK}" \
     /tmp/agy_launch.sh &
 TTYD_PID=$!
-
-# Trap exit to kill background processes
-trap 'kill $SYNCER_PID $TTYD_PID 2>/dev/null || true' EXIT
 
 # ────────────────────────────────────────────────────────────────────────────
 # Launch Web Console (Node.js Application) on Port 8099
 # ────────────────────────────────────────────────────────────────────────────
 bashio::log.info "Launching Web Console Server on port 8099..."
 export PORT=8099
-exec node /app/server.js
+node /app/server.js &
+NODE_PID=$!
+
+# ────────────────────────────────────────────────────────────────────────────
+# Signal handling - clean shutdown of all background processes
+# ────────────────────────────────────────────────────────────────────────────
+cleanup() {
+    bashio::log.info "Shutting down Antigravity Console..."
+    kill $NODE_PID $TTYD_PID $SYNCER_PID 2>/dev/null || true
+    # Final sync before exit
+    rsync -a --delete --exclude='.cache' --exclude='.tmux' /root/ "${PERSISTENT_ROOT}/"
+    exit 0
+}
+
+trap cleanup SIGTERM SIGINT EXIT
+
+# Wait for any child to exit (if one crashes, we want to know)
+wait -n $NODE_PID $TTYD_PID || true
+bashio::log.warning "A child process exited unexpectedly. Shutting down..."
+cleanup

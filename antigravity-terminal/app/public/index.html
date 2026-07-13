@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Antigravity Web GUI</title>
+  <meta name="description" content="Antigravity Console – Web interface for Google DeepMind's Antigravity CLI on Home Assistant">
+  <title>Antigravity Console</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -24,10 +25,10 @@
         </div>
       </div>
       <div class="status-area">
-        <button class="btn btn-toggle" id="toggle-view">Terminal anzeigen</button>
+        <button class="btn btn-toggle" id="toggle-view">Show Terminal</button>
         <div class="status-indicator connected" id="connection-status">
           <span class="dot"></span>
-          <span class="status-label">Verbunden</span>
+          <span class="status-label">Connected</span>
         </div>
       </div>
     </header>
@@ -43,29 +44,30 @@
           <!-- Welcome message -->
           <div class="message system">
             <div class="message-content">
-              <p>🤖 Willkommen in der Antigravity Web-Konsole. Initialisiere CLI-Agenten...</p>
+              <p>🤖 Welcome to Antigravity Console. Initializing CLI agent...</p>
             </div>
           </div>
         </div>
 
         <!-- Inline Prompt Helper (e.g. for [y/N] choices) -->
         <div class="prompt-helper-panel hidden" id="prompt-helper">
-          <span class="prompt-text" id="prompt-helper-text">Berechtigung benötigt:</span>
+          <span class="prompt-text" id="prompt-helper-text">Permission required:</span>
           <div class="prompt-actions">
-            <button class="btn btn-approve" id="btn-approve">Ja (y)</button>
-            <button class="btn btn-deny" id="btn-deny">Nein (n)</button>
+            <button class="btn btn-approve" id="btn-approve" aria-label="Approve action">Yes (y)</button>
+            <button class="btn btn-deny" id="btn-deny" aria-label="Deny action">No (n)</button>
           </div>
         </div>
 
         <!-- Input Area -->
         <footer class="input-area">
           <form class="input-form" id="input-form" autocomplete="off">
+            <label for="user-input" class="sr-only">Message input</label>
             <textarea 
               id="user-input" 
-              placeholder="Frage den Agenten etwas oder gib eine Aufgabe ein... (Eingabe zum Senden, Shift+Eingabe für neue Zeile)" 
+              placeholder="Ask the agent something or give it a task... (Enter to send, Shift+Enter for new line)" 
               rows="1"
             ></textarea>
-            <button type="submit" class="send-btn" aria-label="Senden" id="send-button">
+            <button type="submit" class="send-btn" aria-label="Send message" id="send-button">
               <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
