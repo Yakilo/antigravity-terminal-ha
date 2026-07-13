@@ -146,7 +146,8 @@ function renderScreenCapture(text, isPrompt) {
       continue;
     }
 
-    const isUserLine = userPromptRegex.test(line);
+    // Identify user lines, but exclude interactive menu lists like '> 1. Yes'
+    const isUserLine = userPromptRegex.test(line) && !/^\s*>\s*\d+\./.test(line);
 
     if (isUserLine) {
       // Flush previous agent bubble if existed

@@ -1,7 +1,7 @@
 ---
 name: "Antigravity Console"
 description: "Web Console interface for Google DeepMind's Antigravity CLI (agy)"
-version: "2.0.8"
+version: "2.0.9"
 slug: "antigravity_terminal"
 url: "https://github.com/yakilo/antigravity-terminal-ha"
 arch:
