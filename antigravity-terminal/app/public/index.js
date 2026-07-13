@@ -139,8 +139,34 @@ function renderScreenCapture(text, isPrompt) {
   // Helper patterns to identify user inputs in terminal
   const userPromptRegex = /^(\s*agy\s*>|>\s*|\$\s*|root@.*:~#\s*)/;
 
+  // Filter rules to remove terminal decorations, status bars, and banners
+  const isBannedLine = (line) => {
+    const trimmed = line.trim();
+    if (trimmed === '') return true;
+    
+    // ASCII Logo / Banner lines
+    if (trimmed.includes('▄') || trimmed.includes('▀') || trimmed.includes('█')) return true;
+    if (trimmed.includes('Antigravity CLI') || trimmed.includes('@google') || trimmed.includes('/config')) return true;
+    
+    // Divider lines (long sequences of horizontal lines)
+    if (/^[─\-_=]{3,}$/.test(trimmed)) return true;
+    if (trimmed.startsWith('────')) return true;
+
+    // TUI status bar / shortcut hints
+    if (trimmed.includes('? for shortcuts') || trimmed.includes('Gemini 3.5')) return true;
+    if (trimmed.includes('ctrl+o to expand')) return true;
+
+    return false;
+  };
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    
+    // Skip overhead lines
+    if (isBannedLine(line)) {
+      continue;
+    }
+
     const isUserLine = userPromptRegex.test(line);
 
     if (isUserLine) {
@@ -162,7 +188,14 @@ function renderScreenCapture(text, isPrompt) {
         currentBubbleText = [];
       }
       currentBubbleType = 'agent';
-      currentBubbleText.push(line);
+      
+      // Clean up tool call bullet points (e.g. "● ListDir(...)") to make them look nice
+      let processedLine = line;
+      if (processedLine.trim().startsWith('●')) {
+        processedLine = processedLine.replace('●', '⚙️ Werkzeug-Aufruf:');
+      }
+      
+      currentBubbleText.push(processedLine);
     }
   }
 
