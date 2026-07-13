@@ -5,7 +5,7 @@ All notable changes to the **Antigravity Console** Home Assistant addon will be 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.1.0] - 2026-07-13
+## [2.1.1] - 2026-07-13
 
 ### Added
 - **Web Console GUI** — Full migration from raw terminal to a modern chat-style interface built with HTML/CSS/JS.
@@ -52,6 +52,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AppArmor security** — Runs in an isolated Docker container with Home Assistant AppArmor.
 - **HA config directory mount** — Read/write access to `/config` for file operations.
 
-[2.1.0]: https://github.com/Yakilo/antigravity-terminal-ha/compare/v1.0.15...v2.1.0
+[2.1.1]: https://github.com/Yakilo/antigravity-terminal-ha/compare/v1.0.15...v2.1.1
 [1.0.15]: https://github.com/Yakilo/antigravity-terminal-ha/compare/v1.0.0...v1.0.15
 [1.0.0]: https://github.com/Yakilo/antigravity-terminal-ha/releases/tag/v1.0.0
