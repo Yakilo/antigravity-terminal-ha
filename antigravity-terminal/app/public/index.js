@@ -99,41 +99,20 @@ function formatMarkdown(text) {
   return html;
 }
 
-// Parse the full tmux terminal screen capture into separate chat bubbles
+// Parse the full tmux terminal screen capture into separate chat bubbles without flickering
 function renderScreenCapture(text, isPrompt) {
   if (!text || text.trim() === '') return;
-
-  // Clear previous chat messages (except the initial system one)
-  const systemMsg = chatMessages.querySelector('.message.system');
-  chatMessages.innerHTML = '';
-  if (systemMsg) {
-    chatMessages.appendChild(systemMsg);
-  }
 
   const lines = text.split('\n');
   let currentBubbleType = null; // 'user' or 'agent'
   let currentBubbleText = [];
+  const parsedBubbles = [];
 
-  const createBubble = (type, linesArray) => {
+  const addParsedBubble = (type, linesArray) => {
     if (linesArray.length === 0) return;
     const cleanBubbleText = linesArray.join('\n').trim();
     if (cleanBubbleText === '') return;
-
-    const bubble = document.createElement('div');
-    bubble.className = `message ${type}`;
-
-    const content = document.createElement('div');
-    content.className = 'message-content';
-    content.setAttribute('data-raw', cleanBubbleText);
-
-    if (type === 'user') {
-      content.innerText = cleanBubbleText;
-    } else {
-      content.innerHTML = formatMarkdown(cleanBubbleText);
-    }
-
-    bubble.appendChild(content);
-    chatMessages.appendChild(bubble);
+    parsedBubbles.push({ type, text: cleanBubbleText });
   };
 
   // Helper patterns to identify user inputs in terminal
@@ -172,7 +151,7 @@ function renderScreenCapture(text, isPrompt) {
     if (isUserLine) {
       // Flush previous agent bubble if existed
       if (currentBubbleType === 'agent') {
-        createBubble('agent', currentBubbleText);
+        addParsedBubble('agent', currentBubbleText);
         currentBubbleText = [];
       }
       currentBubbleType = 'user';
@@ -184,7 +163,7 @@ function renderScreenCapture(text, isPrompt) {
     } else {
       // Flush previous user bubble if existed
       if (currentBubbleType === 'user') {
-        createBubble('user', currentBubbleText);
+        addParsedBubble('user', currentBubbleText);
         currentBubbleText = [];
       }
       currentBubbleType = 'agent';
@@ -201,7 +180,59 @@ function renderScreenCapture(text, isPrompt) {
 
   // Flush remaining bubble
   if (currentBubbleType && currentBubbleText.length > 0) {
-    createBubble(currentBubbleType, currentBubbleText);
+    addParsedBubble(currentBubbleType, currentBubbleText);
+  }
+
+  // DOM Patching Engine (Flicker-Free)
+  // Retrieve existing messages (excluding the permanent system welcome message at index 0)
+  const existingBubbles = Array.from(chatMessages.querySelectorAll('.message:not(.system)'));
+  const totalNew = parsedBubbles.length;
+  const totalExisting = existingBubbles.length;
+
+  for (let i = 0; i < Math.max(totalNew, totalExisting); i++) {
+    if (i < totalNew) {
+      const newBubble = parsedBubbles[i];
+      const newHtml = newBubble.type === 'user' ? newBubble.text : formatMarkdown(newBubble.text);
+
+      if (i < totalExisting) {
+        // Update existing bubble if it changed
+        const existingBubble = existingBubbles[i];
+        const contentDiv = existingBubble.querySelector('.message-content');
+        const oldRaw = contentDiv.getAttribute('data-raw');
+
+        // Type Sync
+        if (!existingBubble.classList.contains(newBubble.type)) {
+          existingBubble.className = `message ${newBubble.type}`;
+        }
+
+        // Content Sync (patch only if changed)
+        if (oldRaw !== newBubble.text) {
+          contentDiv.setAttribute('data-raw', newBubble.text);
+          if (newBubble.type === 'user') {
+            contentDiv.innerText = newHtml;
+          } else {
+            contentDiv.innerHTML = newHtml;
+          }
+        }
+      } else {
+        // Append new bubble
+        const bubble = document.createElement('div');
+        bubble.className = `message ${newBubble.type}`;
+        const content = document.createElement('div');
+        content.className = 'message-content';
+        content.setAttribute('data-raw', newBubble.text);
+        if (newBubble.type === 'user') {
+          content.innerText = newBubble.text;
+        } else {
+          content.innerHTML = newHtml;
+        }
+        bubble.appendChild(content);
+        chatMessages.appendChild(bubble);
+      }
+    } else {
+      // Remove excess bubbles
+      existingBubbles[i].remove();
+    }
   }
 
   // Render the prompt choices buttons overlay

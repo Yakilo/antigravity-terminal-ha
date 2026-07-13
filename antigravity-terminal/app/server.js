@@ -115,9 +115,9 @@ wss.on('connection', (ws) => {
     });
   };
 
-  // Start polling the tmux screen state (every 800ms for fast feedback)
+  // Start polling the tmux screen state (every 250ms for near-instant feedback)
   if (process.platform !== 'win32') {
-    captureInterval = setInterval(captureTmuxScreen, 800);
+    captureInterval = setInterval(captureTmuxScreen, 250);
     // Initial capture
     captureTmuxScreen();
   }
