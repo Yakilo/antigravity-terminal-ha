@@ -3,7 +3,7 @@
 ![Antigravity Console](https://img.shields.io/badge/Antigravity-Console-6366f1?style=for-the-badge&logo=google&logoColor=white)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-OS-41BDF5?style=for-the-badge&logo=home-assistant&logoColor=white)
 ![Architecture](https://img.shields.io/badge/arch-aarch64%20%7C%20amd64-green?style=for-the-badge)
-![Version](https://img.shields.io/badge/version-2.1.5-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-2.1.6-blue?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-MIT-yellow?style=for-the-badge)
 
 [![Open your Home Assistant instance and show the add add-on repository dialog](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FYakilo%2Fantigravity-terminal-ha)
@@ -58,7 +58,7 @@ Configure the addon via the **Configuration** tab in the Home Assistant addon pa
 | `persistent_apt_packages` | `list` | No | Additional system packages to install on startup via `apt-get`. Example: `["ffmpeg", "imagemagick"]` |
 | `persistent_pip_packages` | `list` | No | Python pip packages to install on startup. Example: `["requests", "pyyaml"]` |
 
-> **Note:** As of v2.1.5, the config key has been renamed from `persistent_apk_packages` to `persistent_apt_packages`. The old key is still supported for backward compatibility.
+> **Note:** As of v2.1.6, the config key has been renamed from `persistent_apk_packages` to `persistent_apt_packages`. The old key is still supported for backward compatibility.
 
 ### Example Configuration
 
