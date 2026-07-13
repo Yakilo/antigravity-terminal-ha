@@ -35,7 +35,7 @@ After installing the addon, go to the **Configuration** tab to set up the requir
 | `persistent_apt_packages` | List of additional system packages (Debian `apt`) to install on every startup. Example: `["ffmpeg", "imagemagick"]` |
 | `persistent_pip_packages` | List of Python pip packages to install on every startup. Example: `["requests", "pyyaml"]` |
 
-> **Note:** The configuration key was renamed to `persistent_apt_packages` in v2.1.1 to match the underlying Debian OS. The legacy key `persistent_apk_packages` remains supported for backward compatibility.
+> **Note:** The configuration key was renamed to `persistent_apt_packages` in v2.1.2 to match the underlying Debian OS. The legacy key `persistent_apk_packages` remains supported for backward compatibility.
 
 ---
 

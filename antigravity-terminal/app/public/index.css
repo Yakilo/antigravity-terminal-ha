@@ -495,3 +495,48 @@ body {
   border: none;
   background-color: #000;
 }
+
+/* Interactive Multiple Choice Buttons */
+.choice-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background-color: var(--bg-tertiary);
+  color: var(--text-muted);
+  border: 1px solid var(--border-muted);
+  padding: 10px 14px;
+  margin: 6px 0;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.choice-btn:hover, .choice-btn.highlighted {
+  background-color: var(--primary);
+  color: var(--text-main);
+  border-color: transparent;
+  box-shadow: 0 4px 12px var(--primary-glow);
+  transform: translateY(-1px);
+}
+
+.choice-btn:active {
+  transform: translateY(1px);
+}
+
+/* Pending Message State */
+.message.pending {
+  opacity: 0.6;
+  position: relative;
+}
+
+.message.pending::after {
+  content: "⌛";
+  position: absolute;
+  right: -24px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12px;
+  animation: pulse 1s infinite alternate;
+}
