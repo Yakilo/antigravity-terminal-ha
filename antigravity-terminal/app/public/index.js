@@ -365,5 +365,19 @@ toggleViewBtn.addEventListener('click', () => {
   }
 });
 
-// Start connection
+// Fetch version from backend API
+async function fetchVersion() {
+  try {
+    const response = await fetch('./api/version');
+    const data = await response.json();
+    if (data.version) {
+      document.getElementById('app-version').innerText = `v${data.version}`;
+    }
+  } catch (err) {
+    console.error('[Frontend] Failed to fetch version:', err);
+  }
+}
+
+// Start connection & load version
+fetchVersion();
 connect();

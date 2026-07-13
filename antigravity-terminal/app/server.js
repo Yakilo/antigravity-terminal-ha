@@ -6,12 +6,25 @@ import { fileURLToPath } from 'url';
 
 import httpProxy from 'http-proxy';
 
+import fs from 'fs';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const port = process.env.PORT || 8099;
 const ttydPort = 8098;
+
+// Endpoint to fetch the current app version
+app.get('/api/version', (req, res) => {
+  try {
+    const packagePath = path.join(__dirname, 'package.json');
+    const packageData = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+    res.json({ version: packageData.version });
+  } catch (err) {
+    res.json({ version: '2.1.0' });
+  }
+});
 
 // Create http proxy
 const proxy = httpProxy.createProxyServer({
