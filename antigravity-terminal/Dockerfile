@@ -83,9 +83,13 @@ ENV PATH="/root/.local/bin:${PATH}"
 # Copy the hab binary from builder stage
 COPY --from=hab-builder /hab /usr/local/bin/hab
 
-# Copy Web GUI Application
-COPY app /app
+# Copy Web GUI Application package configuration and install dependencies
+# Doing this first allows Docker to cache the npm install layer
+COPY app/package.json /app/package.json
 RUN cd /app && npm install
+
+# Copy the rest of the Web GUI Application code
+COPY app /app
 
 # Copy all rootfs files (scripts, configs, etc.)
 COPY rootfs /
