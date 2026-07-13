@@ -60,7 +60,4 @@ jobs:
             --all \
             --target antigravity-terminal \
             --image antigravity-terminal-ha/{arch} \
-            --registry ghcr.io \
-            --docker-hub yakilo \
-            --docker-user ${{ github.actor }} \
-            --docker-password ${{ secrets.GITHUB_TOKEN }}
+            --docker-hub ghcr.io/yakilo

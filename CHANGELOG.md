@@ -5,6 +5,11 @@ All notable changes to the **Antigravity Console** Home Assistant addon will be 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.5] - 2026-07-13
+
+### Fixed
+- **CI/CD registry login redundancy**: Removed redundant login credentials from builder flags to bypass the builder's default Docker Hub authorization check, relying entirely on the pre-authenticated docker/login-action credentials.
+
 ## [2.1.4] - 2026-07-13
 
 ### Fixed
@@ -72,6 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AppArmor security** — Runs in an isolated Docker container with Home Assistant AppArmor.
 - **HA config directory mount** — Read/write access to `/config` for file operations.
 
+[2.1.5]: https://github.com/Yakilo/antigravity-terminal-ha/compare/v2.1.4...v2.1.5
 [2.1.4]: https://github.com/Yakilo/antigravity-terminal-ha/compare/v2.1.3...v2.1.4
 [2.1.3]: https://github.com/Yakilo/antigravity-terminal-ha/compare/v2.1.2...v2.1.3
 [2.1.2]: https://github.com/Yakilo/antigravity-terminal-ha/compare/v2.1.1...v2.1.2
