@@ -5,6 +5,11 @@ All notable changes to the **Antigravity Console** Home Assistant addon will be 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.7] - 2026-07-13
+
+### Fixed
+- **Image tag name mismatch**: Added the addon slug suffix (`-antigravity_terminal`) to the `--image` flag in the publishing workflow to align with `build.yaml` formatting, resolving pull target 404 errors in HA Supervisor.
+
 ## [2.1.6] - 2026-07-13
 
 ### Fixed
@@ -82,6 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AppArmor security** — Runs in an isolated Docker container with Home Assistant AppArmor.
 - **HA config directory mount** — Read/write access to `/config` for file operations.
 
+[2.1.7]: https://github.com/Yakilo/antigravity-terminal-ha/compare/v2.1.6...v2.1.7
 [2.1.6]: https://github.com/Yakilo/antigravity-terminal-ha/compare/v2.1.5...v2.1.6
 [2.1.5]: https://github.com/Yakilo/antigravity-terminal-ha/compare/v2.1.4...v2.1.5
 [2.1.4]: https://github.com/Yakilo/antigravity-terminal-ha/compare/v2.1.3...v2.1.4

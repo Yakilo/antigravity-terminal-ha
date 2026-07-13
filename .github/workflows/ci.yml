@@ -53,5 +53,5 @@ jobs:
           args: |
             --all \
             --target antigravity-terminal \
-            --image antigravity-terminal-ha/{arch} \
+            --image antigravity-terminal-ha/{arch}-antigravity_terminal \
             --docker-hub ghcr.io/yakilo
