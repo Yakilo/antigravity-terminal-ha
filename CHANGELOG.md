@@ -5,6 +5,14 @@ All notable changes to the **Antigravity Console** Home Assistant addon will be 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.9] - 2026-07-21
+
+### Fixed & Optimized
+- **Terminal Output Reconciliation**: Deduplicated prompt echoes and prevented user input mixing with agent messages.
+- **Single-Shot CSS Animations**: Scoped entry keyframe animations to `.animate-in` to eliminate animation stuttering on polling updates.
+- **Adaptive Capture Loop**: Reduced CPU and RAM usage via in-memory session caching and dynamic polling frequency back-off.
+- **Interactive Code Block Copying**: Added copy buttons for all code blocks in agent responses.
+
 ## [2.1.8] - 2026-07-13
 
 ### Added
