@@ -233,10 +233,11 @@ function captureAllActiveSessions() {
           idleTicks++;
         }
 
-        // Adaptive polling frequency: 200ms when streaming, backing off to 2s when idle
-        let nextInterval = 200;
-        if (idleTicks > 3) nextInterval = 600;
-        if (idleTicks > 10) nextInterval = 2000;
+        // Adaptive polling frequency: 20ms when actively streaming, backing off to 2s when idle
+        let nextInterval = 20;
+        if (idleTicks > 5) nextInterval = 100;
+        if (idleTicks > 15) nextInterval = 500;
+        if (idleTicks > 40) nextInterval = 2000;
 
         scheduleNextCapture(nextInterval);
       }
@@ -256,7 +257,7 @@ function triggerFastCapture(sessionId) {
   if (sessionId) {
     captureTmuxSession(sessionId, () => {});
   }
-  scheduleNextCapture(150);
+  scheduleNextCapture(20);
 }
 
 function startCaptureLoop() {

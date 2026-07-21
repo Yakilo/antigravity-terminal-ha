@@ -5,6 +5,13 @@ All notable changes to the **Antigravity Console** Home Assistant addon will be 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] - 2026-07-21
+
+### Fixed
+- **User messages no longer disappear**: Replaced fragile index-based DOM reconciliation with a stable `data-key`-based system. Each bubble gets a permanent key (`user-0`, `agent-1`, etc.) so updates never destroy the wrong node.
+- **Pending-to-confirmed upgrade is truly in-place**: Matching pending bubbles are promoted by key lookup, not index, eliminating all flickering.
+- **Live response streaming (20ms polling)**: Server adaptive polling reduced from 200ms minimum to **20ms** during active terminal output. Agent responses now appear character-by-character in real time. Backs off to 100ms → 500ms → 2000ms when idle.
+
 ## [2.2.0] - 2026-07-21
 
 ### Fixed & Smooth Animation

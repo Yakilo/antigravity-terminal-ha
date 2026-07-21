@@ -580,7 +580,7 @@ function formatMarkdown(text) {
   return html;
 }
 
-// ─── Chat Messages Rendering & In-Place Reconciliation ──────────────────────
+// ─── Chat Messages Rendering & Stable Key Reconciliation ─────────────────────
 function renderChatMessages(text, isPrompt) {
   const lines = text.split('\n');
   let currentBubbleType = null;
@@ -623,9 +623,7 @@ function renderChatMessages(text, isPrompt) {
       }
       currentBubbleType = 'user';
       const cleanCmd = line.replace(userPromptRegex, '').trim();
-      if (cleanCmd !== '') {
-        currentBubbleText.push(cleanCmd);
-      }
+      if (cleanCmd !== '') currentBubbleText.push(cleanCmd);
     } else {
       if (currentBubbleType === 'user') {
         addParsedBubble('user', currentBubbleText);
@@ -647,32 +645,60 @@ function renderChatMessages(text, isPrompt) {
   // Check scroll position before modifying DOM
   const isNearBottom = (chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight) < 150;
 
-  // DOM Reconciliation: update existing nodes in-place (including pending bubbles) to prevent flicker & stutter
-  const existingBubbles = Array.from(chatMessages.querySelectorAll('.message:not(.system)'));
+  // ── Stable key-based DOM reconciliation ──────────────────────────────────
+  // Each confirmed bubble gets a stable data-key = "<type>-<idx>".
+  // Pending bubbles (created on submit) have class "pending" and data-raw=<text>.
+  // Rules:
+  //   1. For each parsed user bubble, check if a pending bubble matches → upgrade in-place (no flicker).
+  //   2. For existing confirmed bubbles (by key): update content if changed, NO re-animation.
+  //   3. New bubbles get animate-in only once on first creation.
+  //   4. DOM nodes with keys no longer in the parsed set get removed.
+
+  const bubbleKeys = parsedBubbles.map((pb, idx) => `${pb.type}-${idx}`);
+
+  // Index existing confirmed bubbles by data-key
+  const existingKeyedBubbles = new Map();
+  chatMessages.querySelectorAll('.message:not(.system):not(.pending)').forEach(el => {
+    const k = el.getAttribute('data-key');
+    if (k) existingKeyedBubbles.set(k, el);
+  });
+
+  // Index pending bubbles by trimmed text
+  const pendingBubbles = new Map();
+  chatMessages.querySelectorAll('.message.user.pending').forEach(el => {
+    const raw = (el.querySelector('.message-content')?.getAttribute('data-raw') || '').trim();
+    if (raw) pendingBubbles.set(raw, el);
+  });
+
+  // Track which pending bubbles were matched so we don't remove unmatched ones
+  const matchedPending = new Set();
 
   parsedBubbles.forEach((pb, idx) => {
-    let bubbleEl = existingBubbles[idx];
+    const key = bubbleKeys[idx];
+    let bubbleEl = existingKeyedBubbles.get(key);
 
-    if (!bubbleEl || !bubbleEl.classList.contains(pb.type)) {
+    if (!bubbleEl) {
+      // For user bubbles: try to promote a pending bubble in-place (no flicker)
       if (pb.type === 'user') {
-        const pendingMatch = existingBubbles.find(el => 
-          el.classList.contains('pending') && 
-          el.querySelector('.message-content')?.getAttribute('data-raw')?.trim() === pb.text.trim()
-        );
-        if (pendingMatch) {
-          bubbleEl = pendingMatch;
+        const pendingEl = pendingBubbles.get(pb.text.trim());
+        if (pendingEl) {
+          pendingEl.classList.remove('pending');
+          pendingEl.setAttribute('data-key', key);
+          pendingEl.querySelector('.message-content').setAttribute('data-raw', pb.text);
+          pendingBubbles.delete(pb.text.trim());
+          existingKeyedBubbles.set(key, pendingEl);
+          return;
         }
       }
-    }
 
-    if (!bubbleEl || !bubbleEl.classList.contains(pb.type)) {
+      // Create brand-new bubble with entrance animation (fires exactly once)
       bubbleEl = document.createElement('div');
       bubbleEl.className = `message ${pb.type} animate-in`;
+      bubbleEl.setAttribute('data-key', key);
 
       const content = document.createElement('div');
       content.className = 'message-content';
       content.setAttribute('data-raw', pb.text);
-
       if (pb.type === 'user') {
         content.innerText = pb.text;
       } else {
@@ -680,39 +706,30 @@ function renderChatMessages(text, isPrompt) {
       }
 
       bubbleEl.appendChild(content);
-
-      if (existingBubbles[idx]) {
-        chatMessages.insertBefore(bubbleEl, existingBubbles[idx]);
-        existingBubbles.splice(idx, 0, bubbleEl);
-      } else {
-        chatMessages.appendChild(bubbleEl);
-        existingBubbles.push(bubbleEl);
-      }
+      chatMessages.appendChild(bubbleEl);
+      existingKeyedBubbles.set(key, bubbleEl);
     } else {
-      // Transition pending node to confirmed state in-place (NO node re-creation, NO flicker!)
-      if (bubbleEl.classList.contains('pending')) {
-        bubbleEl.classList.remove('pending');
-      }
-
-      const contentDiv = bubbleEl.querySelector('.message-content');
-      const oldRaw = contentDiv.getAttribute('data-raw') || '';
-
+      // Update content in-place — NO animate-in re-trigger
+      const cd = bubbleEl.querySelector('.message-content');
+      const oldRaw = cd.getAttribute('data-raw') || '';
       if (oldRaw !== pb.text) {
-        contentDiv.setAttribute('data-raw', pb.text);
+        cd.setAttribute('data-raw', pb.text);
         if (pb.type === 'user') {
-          contentDiv.innerText = pb.text;
+          cd.innerText = pb.text;
         } else {
-          contentDiv.innerHTML = formatMarkdown(pb.text);
+          // Live-stream agent response: direct innerHTML update, smooth character-by-character
+          cd.innerHTML = formatMarkdown(pb.text);
         }
       }
     }
   });
 
-  // Remove trailing extra bubbles
-  while (existingBubbles.length > parsedBubbles.length) {
-    const extra = existingBubbles.pop();
-    extra.remove();
-  }
+  // Remove keyed DOM nodes that no longer appear in parsedBubbles
+  existingKeyedBubbles.forEach((el, key) => {
+    if (!bubbleKeys.includes(key)) el.remove();
+  });
+
+  // Unmatched pending bubbles are left in place (still in-flight)
 
   highlightedChoiceIdx = -1;
 
@@ -723,10 +740,7 @@ function renderChatMessages(text, isPrompt) {
     promptHelper.classList.add('hidden');
   }
 
-  // Auto-scroll only if user was near bottom
-  if (isNearBottom) {
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-  }
+  if (isNearBottom) chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
 // ─── Input Form Submission ────────────────────────────────────────────────
