@@ -5,6 +5,12 @@ All notable changes to the **Antigravity Console** Home Assistant addon will be 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-07-21
+
+### Fixed & Smooth Animation
+- **Seamless Pending-to-Confirmed Message Conversion**: Transformed pending user bubbles in-place upon receiving terminal prompt confirmation without destroying/re-creating DOM nodes, eliminating double text animation & flickering on the right side.
+- **Hardware-Accelerated Smooth Transitions**: Upgraded `@keyframes fadeInUp` to use GPU-accelerated 3D transforms (`translate3d`) and smooth opacity transitions.
+
 ## [2.1.9] - 2026-07-21
 
 ### Fixed & Optimized

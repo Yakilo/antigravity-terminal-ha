@@ -647,11 +647,23 @@ function renderChatMessages(text, isPrompt) {
   // Check scroll position before modifying DOM
   const isNearBottom = (chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight) < 150;
 
-  // DOM Reconciliation: update existing nodes in-place to prevent flicker & stutter
-  const existingBubbles = Array.from(chatMessages.querySelectorAll('.message:not(.system):not(.pending)'));
+  // DOM Reconciliation: update existing nodes in-place (including pending bubbles) to prevent flicker & stutter
+  const existingBubbles = Array.from(chatMessages.querySelectorAll('.message:not(.system)'));
 
   parsedBubbles.forEach((pb, idx) => {
     let bubbleEl = existingBubbles[idx];
+
+    if (!bubbleEl || !bubbleEl.classList.contains(pb.type)) {
+      if (pb.type === 'user') {
+        const pendingMatch = existingBubbles.find(el => 
+          el.classList.contains('pending') && 
+          el.querySelector('.message-content')?.getAttribute('data-raw')?.trim() === pb.text.trim()
+        );
+        if (pendingMatch) {
+          bubbleEl = pendingMatch;
+        }
+      }
+    }
 
     if (!bubbleEl || !bubbleEl.classList.contains(pb.type)) {
       bubbleEl = document.createElement('div');
@@ -663,11 +675,6 @@ function renderChatMessages(text, isPrompt) {
 
       if (pb.type === 'user') {
         content.innerText = pb.text;
-        const pendings = chatMessages.querySelectorAll('.message.user.pending');
-        pendings.forEach(p => {
-          const pRaw = p.querySelector('.message-content').getAttribute('data-raw');
-          if (pRaw === pb.text) p.remove();
-        });
       } else {
         content.innerHTML = formatMarkdown(pb.text);
       }
@@ -682,7 +689,11 @@ function renderChatMessages(text, isPrompt) {
         existingBubbles.push(bubbleEl);
       }
     } else {
-      // Update contents in-place ONLY if changed
+      // Transition pending node to confirmed state in-place (NO node re-creation, NO flicker!)
+      if (bubbleEl.classList.contains('pending')) {
+        bubbleEl.classList.remove('pending');
+      }
+
       const contentDiv = bubbleEl.querySelector('.message-content');
       const oldRaw = contentDiv.getAttribute('data-raw') || '';
 
