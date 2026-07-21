@@ -1,6 +1,6 @@
 import express from 'express';
 import { WebSocketServer } from 'ws';
-import { spawn, execSync } from 'child_process';
+import { spawn, execSync, execFile } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import httpProxy from 'http-proxy';
@@ -113,91 +113,165 @@ server.on('upgrade', (request, socket, head) => {
 
 const connectedClients = new Set();
 const lastCapturedTextMap = new Map();
-let captureInterval = null;
+const knownTmuxSessions = new Set();
 
-// Helper to strip ANSI escape codes
+let captureTimer = null;
+let idleTicks = 0;
+
+// Pre-compiled ANSI regex for high performance
+const ANSI_REGEX = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
+
 function stripAnsi(str) {
-  return str.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+  return str.replace(ANSI_REGEX, '');
 }
 
-// Verify dynamic tmux sessions match list
-function ensureTmuxSessionExists(sessionId) {
-  try {
-    execSync(`tmux has-session -t ${sessionId} 2>/dev/null`);
-  } catch (err) {
-    console.log(`[Tmux] Spawning new session: ${sessionId}`);
-    const launchCmd = 'if command -v agy &>/dev/null; then agy; else exec bash; fi';
-    spawn('tmux', ['new-session', '-d', '-s', sessionId, '-c', '/config', 'bash', '-c', launchCmd]);
+// Verify dynamic tmux sessions match list with non-blocking cache check
+function ensureTmuxSessionExists(sessionId, callback) {
+  if (knownTmuxSessions.has(sessionId)) {
+    if (callback) callback();
+    return;
   }
+  execFile('tmux', ['has-session', '-t', sessionId], (err) => {
+    if (err) {
+      console.log(`[Tmux] Spawning new session: ${sessionId}`);
+      const launchCmd = 'if command -v agy &>/dev/null; then agy; else exec bash; fi';
+      const child = spawn('tmux', ['new-session', '-d', '-s', sessionId, '-c', '/config', 'bash', '-c', launchCmd]);
+      child.on('close', (code) => {
+        if (code === 0) knownTmuxSessions.add(sessionId);
+        if (callback) callback();
+      });
+    } else {
+      knownTmuxSessions.add(sessionId);
+      if (callback) callback();
+    }
+  });
 }
 
-function captureTmuxSession(sessionId) {
-  ensureTmuxSessionExists(sessionId);
-  const tmuxCapture = spawn('tmux', ['capture-pane', '-t', sessionId, '-p']);
-  let output = '';
+function captureTmuxSession(sessionId, onCaptureDone) {
+  ensureTmuxSessionExists(sessionId, () => {
+    const tmuxCapture = spawn('tmux', ['capture-pane', '-t', sessionId, '-p']);
+    let output = '';
 
-  tmuxCapture.stdout.on('data', (data) => {
-    output += data.toString();
-  });
+    tmuxCapture.stdout.on('data', (data) => {
+      output += data.toString();
+    });
 
-  tmuxCapture.on('close', (code) => {
-    const lastText = lastCapturedTextMap.get(sessionId) || '';
-    if (code === 0 && output !== lastText) {
-      lastCapturedTextMap.set(sessionId, output);
+    tmuxCapture.on('close', (code) => {
+      let changed = false;
+      if (code === 0) {
+        const lastText = lastCapturedTextMap.get(sessionId) || '';
+        if (output !== lastText) {
+          lastCapturedTextMap.set(sessionId, output);
+          changed = true;
 
-      const cleanText = stripAnsi(output);
-      const isPrompt = cleanText.includes('[y/N]') || 
-                       cleanText.includes('Select login method:') ||
-                       cleanText.includes('Choose your color scheme:') ||
-                       cleanText.includes('Do you trust the contents of this project?');
+          const cleanText = stripAnsi(output);
+          const isPrompt = cleanText.includes('[y/N]') || 
+                           cleanText.includes('Select login method:') ||
+                           cleanText.includes('Choose your color scheme:') ||
+                           cleanText.includes('Do you trust the contents of this project?');
 
-      const payload = JSON.stringify({
-        type: 'output',
-        sessionId: sessionId,
-        data: output,
-        clean: cleanText,
-        isPrompt: isPrompt
-      });
+          const payload = JSON.stringify({
+            type: 'output',
+            sessionId: sessionId,
+            data: output,
+            clean: cleanText,
+            isPrompt: isPrompt
+          });
 
-      // Broadcast only to clients viewing this session
-      for (const client of connectedClients) {
-        if (client.readyState === client.OPEN && client.sessionId === sessionId) {
-          client.send(payload);
+          // Broadcast only to clients viewing this session
+          for (const client of connectedClients) {
+            if (client.readyState === client.OPEN && client.sessionId === sessionId) {
+              client.send(payload);
+            }
+          }
         }
+      } else {
+        knownTmuxSessions.delete(sessionId);
       }
-    }
-  });
+      if (onCaptureDone) onCaptureDone(changed);
+    });
 
-  tmuxCapture.on('error', (err) => {
-    if (err.code !== 'ENOENT') {
-      console.error(`[Tmux] Capture error on session ${sessionId}:`, err.message);
-    }
+    tmuxCapture.on('error', (err) => {
+      if (err.code !== 'ENOENT') {
+        console.error(`[Tmux] Capture error on session ${sessionId}:`, err.message);
+      }
+      if (onCaptureDone) onCaptureDone(false);
+    });
   });
 }
 
 function captureAllActiveSessions() {
+  if (connectedClients.size === 0) {
+    stopCaptureLoop();
+    return;
+  }
+
   const activeSessions = new Set();
   for (const client of connectedClients) {
-    if (client.sessionId) {
+    if (client.sessionId && client.readyState === client.OPEN) {
       activeSessions.add(client.sessionId);
     }
   }
+
+  if (activeSessions.size === 0) {
+    scheduleNextCapture(1000);
+    return;
+  }
+
+  let completed = 0;
+  let anyChanged = false;
+  const total = activeSessions.size;
+
   for (const sessionId of activeSessions) {
-    captureTmuxSession(sessionId);
+    captureTmuxSession(sessionId, (changed) => {
+      if (changed) anyChanged = true;
+      completed++;
+      if (completed >= total) {
+        if (anyChanged) {
+          idleTicks = 0;
+        } else {
+          idleTicks++;
+        }
+
+        // Adaptive polling frequency: 200ms when streaming, backing off to 2s when idle
+        let nextInterval = 200;
+        if (idleTicks > 3) nextInterval = 600;
+        if (idleTicks > 10) nextInterval = 2000;
+
+        scheduleNextCapture(nextInterval);
+      }
+    });
   }
 }
 
+function scheduleNextCapture(delayMs) {
+  if (captureTimer) clearTimeout(captureTimer);
+  if (connectedClients.size > 0) {
+    captureTimer = setTimeout(captureAllActiveSessions, delayMs);
+  }
+}
+
+function triggerFastCapture(sessionId) {
+  idleTicks = 0;
+  if (sessionId) {
+    captureTmuxSession(sessionId, () => {});
+  }
+  scheduleNextCapture(150);
+}
+
 function startCaptureLoop() {
-  if (captureInterval) return;
-  console.log('[Capture] Starting shared multi-session capture loop (500ms)');
-  captureInterval = setInterval(captureAllActiveSessions, 500);
+  if (!captureTimer && connectedClients.size > 0) {
+    console.log('[Capture] Starting adaptive multi-session capture loop');
+    idleTicks = 0;
+    scheduleNextCapture(100);
+  }
 }
 
 function stopCaptureLoop() {
-  if (captureInterval && connectedClients.size === 0) {
-    console.log('[Capture] No clients connected, stopping capture loop');
-    clearInterval(captureInterval);
-    captureInterval = null;
+  if (captureTimer) {
+    console.log('[Capture] No active clients, pausing capture loop');
+    clearTimeout(captureTimer);
+    captureTimer = null;
   }
 }
 
@@ -326,6 +400,7 @@ wss.on('connection', (ws) => {
         } catch (err) {
           // ignore
         }
+        knownTmuxSessions.delete(deleteId);
 
         // Remove from output cache
         lastCapturedTextMap.delete(deleteId);
@@ -387,7 +462,7 @@ wss.on('connection', (ws) => {
 
         tmuxSend.on('close', (code) => {
           if (code === 0) {
-            setTimeout(() => captureTmuxSession(ws.sessionId), 100);
+            triggerFastCapture(ws.sessionId);
           }
         });
       }
@@ -412,9 +487,9 @@ wss.on('connection', (ws) => {
 
 function gracefulShutdown(signal) {
   console.log(`[Backend] Received ${signal}, shutting down gracefully...`);
-  if (captureInterval) {
-    clearInterval(captureInterval);
-    captureInterval = null;
+  if (captureTimer) {
+    clearTimeout(captureTimer);
+    captureTimer = null;
   }
   for (const client of connectedClients) {
     client.close(1001, 'Server shutting down');

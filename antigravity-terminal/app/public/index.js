@@ -546,10 +546,26 @@ function formatMarkdown(text) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
+  // Interactive numbered choice buttons
   html = html.replace(/^\s*(?:&gt;\s*)?(\d+)\.\s+(.+)$/gm, '<button class="choice-btn" data-choice="$1">$1. $2</button>');
 
+  // Code blocks with copy button
   html = html.replace(/```([\s\S]*?)```/g, (match, code) => {
-    return `<pre><code>${code.trim()}</code></pre>`;
+    return `
+      <div class="code-block-container">
+        <div class="code-block-header">
+          <span class="code-lang">code</span>
+          <button class="copy-code-btn" type="button" aria-label="Copy code block">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+            <span>Copy</span>
+          </button>
+        </div>
+        <pre><code>${code.trim()}</code></pre>
+      </div>
+    `;
   });
 
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
@@ -564,7 +580,7 @@ function formatMarkdown(text) {
   return html;
 }
 
-// ─── Chat Messages Rendering ────────────────────────────────────────────────
+// ─── Chat Messages Rendering & In-Place Reconciliation ──────────────────────
 function renderChatMessages(text, isPrompt) {
   const lines = text.split('\n');
   let currentBubbleType = null;
@@ -628,54 +644,63 @@ function renderChatMessages(text, isPrompt) {
     addParsedBubble(currentBubbleType, currentBubbleText);
   }
 
-  // DOM Reconciliation
+  // Check scroll position before modifying DOM
+  const isNearBottom = (chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight) < 150;
+
+  // DOM Reconciliation: update existing nodes in-place to prevent flicker & stutter
   const existingBubbles = Array.from(chatMessages.querySelectorAll('.message:not(.system):not(.pending)'));
-  let matchOffset = -1;
 
-  if (existingBubbles.length > 0) {
-    const lastExisting = existingBubbles[existingBubbles.length - 1];
-    const lastContent = lastExisting.querySelector('.message-content');
-    const lastRaw = lastContent.getAttribute('data-raw') || '';
-    const lastType = lastExisting.classList.contains('user') ? 'user' : 'agent';
+  parsedBubbles.forEach((pb, idx) => {
+    let bubbleEl = existingBubbles[idx];
 
-    for (let i = parsedBubbles.length - 1; i >= 0; i--) {
-      const pb = parsedBubbles[i];
-      if (pb.type === lastType) {
-        const isStreamingMatch = pb.type === 'agent' && 
-          (pb.text.startsWith(lastRaw) || lastRaw.startsWith(pb.text) || i === parsedBubbles.length - 1);
-        const isExactMatch = pb.text === lastRaw;
-        
-        if (isExactMatch || isStreamingMatch) {
-          matchOffset = i;
-          break;
+    if (!bubbleEl || !bubbleEl.classList.contains(pb.type)) {
+      bubbleEl = document.createElement('div');
+      bubbleEl.className = `message ${pb.type} animate-in`;
+
+      const content = document.createElement('div');
+      content.className = 'message-content';
+      content.setAttribute('data-raw', pb.text);
+
+      if (pb.type === 'user') {
+        content.innerText = pb.text;
+        const pendings = chatMessages.querySelectorAll('.message.user.pending');
+        pendings.forEach(p => {
+          const pRaw = p.querySelector('.message-content').getAttribute('data-raw');
+          if (pRaw === pb.text) p.remove();
+        });
+      } else {
+        content.innerHTML = formatMarkdown(pb.text);
+      }
+
+      bubbleEl.appendChild(content);
+
+      if (existingBubbles[idx]) {
+        chatMessages.insertBefore(bubbleEl, existingBubbles[idx]);
+        existingBubbles.splice(idx, 0, bubbleEl);
+      } else {
+        chatMessages.appendChild(bubbleEl);
+        existingBubbles.push(bubbleEl);
+      }
+    } else {
+      // Update contents in-place ONLY if changed
+      const contentDiv = bubbleEl.querySelector('.message-content');
+      const oldRaw = contentDiv.getAttribute('data-raw') || '';
+
+      if (oldRaw !== pb.text) {
+        contentDiv.setAttribute('data-raw', pb.text);
+        if (pb.type === 'user') {
+          contentDiv.innerText = pb.text;
+        } else {
+          contentDiv.innerHTML = formatMarkdown(pb.text);
         }
       }
     }
-  }
+  });
 
-  if (matchOffset !== -1) {
-    const matchedExisting = existingBubbles[existingBubbles.length - 1];
-    const matchedParsed = parsedBubbles[matchOffset];
-    const contentDiv = matchedExisting.querySelector('.message-content');
-    const oldRaw = contentDiv.getAttribute('data-raw') || '';
-
-    if (oldRaw !== matchedParsed.text) {
-      contentDiv.setAttribute('data-raw', matchedParsed.text);
-      if (matchedParsed.type === 'user') {
-        contentDiv.innerText = matchedParsed.text;
-      } else {
-        contentDiv.innerHTML = formatMarkdown(matchedParsed.text);
-      }
-    }
-
-    for (let i = matchOffset + 1; i < parsedBubbles.length; i++) {
-      appendNewBubble(parsedBubbles[i].type, parsedBubbles[i].text);
-    }
-  } else {
-    chatMessages.innerHTML = '';
-    parsedBubbles.forEach(pb => {
-      appendNewBubble(pb.type, pb.text);
-    });
+  // Remove trailing extra bubbles
+  while (existingBubbles.length > parsedBubbles.length) {
+    const extra = existingBubbles.pop();
+    extra.remove();
   }
 
   highlightedChoiceIdx = -1;
@@ -687,30 +712,10 @@ function renderChatMessages(text, isPrompt) {
     promptHelper.classList.add('hidden');
   }
 
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-
-function appendNewBubble(type, text) {
-  const container = document.createElement('div');
-  container.className = `message ${type}`;
-
-  const content = document.createElement('div');
-  content.className = 'message-content';
-  content.setAttribute('data-raw', text);
-
-  if (type === 'user') {
-    content.innerText = text;
-    const pendings = chatMessages.querySelectorAll('.message.user.pending');
-    pendings.forEach(p => {
-      const pRaw = p.querySelector('.message-content').getAttribute('data-raw');
-      if (pRaw === text) p.remove();
-    });
-  } else {
-    content.innerHTML = formatMarkdown(text);
+  // Auto-scroll only if user was near bottom
+  if (isNearBottom) {
+    chatMessages.scrollTop = chatMessages.scrollHeight;
   }
-
-  container.appendChild(content);
-  chatMessages.appendChild(container);
 }
 
 // ─── Input Form Submission ────────────────────────────────────────────────
@@ -723,7 +728,7 @@ if (inputForm) {
     socket.send(JSON.stringify({ type: 'input', data: value }));
 
     const pendingMsg = document.createElement('div');
-    pendingMsg.className = 'message user pending';
+    pendingMsg.className = 'message user pending animate-in';
     
     const content = document.createElement('div');
     content.className = 'message-content';
@@ -794,11 +799,33 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-// Click delegation on choices buttons
+// Click delegation handlers (choices & code copy)
 document.addEventListener('click', (e) => {
+  // Choice button click
   if (e.target && e.target.classList.contains('choice-btn')) {
     const choiceNum = e.target.getAttribute('data-choice');
     socket.send(JSON.stringify({ type: 'input', data: choiceNum }));
+  }
+
+  // Copy code block click
+  const copyBtn = e.target.closest('.copy-code-btn');
+  if (copyBtn) {
+    const container = copyBtn.closest('.code-block-container');
+    const codeEl = container ? container.querySelector('code') : null;
+    if (codeEl) {
+      navigator.clipboard.writeText(codeEl.innerText).then(() => {
+        const textSpan = copyBtn.querySelector('span') || copyBtn;
+        const originalText = textSpan.innerText;
+        textSpan.innerText = 'Copied!';
+        copyBtn.classList.add('copied');
+        setTimeout(() => {
+          textSpan.innerText = originalText;
+          copyBtn.classList.remove('copied');
+        }, 2000);
+      }).catch(err => {
+        console.error('Failed to copy code:', err);
+      });
+    }
   }
 });
 
